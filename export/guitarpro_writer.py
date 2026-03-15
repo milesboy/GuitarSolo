@@ -47,20 +47,7 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
 
     mt = song.tracks[0]
     mt.name = "Guitar"
-    mt.number = 1
-    mt.port = 0
-    mt.offset = 0
-    mt.channel.channel = 0
     mt.channel.instrument = 25
-    mt.isPercussionTrack = False
-    mt.strings = [
-        guitarpro.GuitarString(1, 64),
-        guitarpro.GuitarString(2, 59),
-        guitarpro.GuitarString(3, 55),
-        guitarpro.GuitarString(4, 50),
-        guitarpro.GuitarString(5, 45),
-        guitarpro.GuitarString(6, 40),
-    ]
 
     if not fretted_notes:
         guitarpro.write(song, output_path)
