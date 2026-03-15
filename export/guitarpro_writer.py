@@ -5,6 +5,9 @@ hammer-ons, pull-offs, slides, bends.
 
 Track 1: Melody/fingerpicking (detected notes with articulations)
 Track 2: Chords (muted by default — reference track)
+
+Timing: all note onsets are quantized to a 32nd-note grid and rests
+are inserted for gaps, so GP playback matches the original audio timing.
 """
 import guitarpro
 from guitarpro.models import BendPoint
@@ -13,6 +16,20 @@ import math
 from articulation.detector import ArticulationType
 
 CHROMA_NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+# 32nd-note grid: 32 slots per measure in 4/4
+GRID_PER_BEAT = 8  # 8 grid slots per quarter note
+GRID_PER_MEASURE = 32  # 4 beats * 8
+
+# Grid units -> GP Duration.value
+GRID_TO_GP = {
+    32: 1,   # whole
+    16: 2,   # half
+    8:  4,   # quarter
+    4:  8,   # eighth
+    2:  16,  # sixteenth
+    1:  32,  # thirty-second
+}
 
 # Chord voicings as (string, fret) lists — open position shapes
 # String numbering: 1=high E, 2=B, 3=G, 4=D, 5=A, 6=low E
@@ -40,7 +57,6 @@ CHORD_VOICINGS = {
     "A#": [(1,1),(2,1),(3,3),(4,3),(5,1)],
     "A#m":[(1,1),(2,1),(3,2),(4,3),(5,1)],
 }
-# Aliases
 CHORD_VOICINGS["Db"] = CHORD_VOICINGS["C#"]
 CHORD_VOICINGS["Dbm"] = CHORD_VOICINGS["C#m"]
 CHORD_VOICINGS["Eb"] = CHORD_VOICINGS["D#"]
@@ -53,20 +69,145 @@ CHORD_VOICINGS["Bb"] = CHORD_VOICINGS["A#"]
 CHORD_VOICINGS["Bbm"] = CHORD_VOICINGS["A#m"]
 
 
-def _duration_to_gp(dur_beats):
-    """Convert a duration in beats to the nearest Guitar Pro Duration value."""
-    if dur_beats >= 3.0:
-        return 1   # whole
-    elif dur_beats >= 1.5:
-        return 2   # half
-    elif dur_beats >= 0.75:
-        return 4   # quarter
-    elif dur_beats >= 0.375:
-        return 8   # eighth
-    elif dur_beats >= 0.1875:
-        return 16  # sixteenth
-    else:
-        return 32  # thirty-second
+def _snap_grid_dur(grid_units):
+    """Snap a duration in grid units to the nearest valid GP duration.
+
+    Returns (gp_value, actual_grid_units) — the GP Duration.value and
+    how many grid slots it actually consumes.
+    """
+    # Valid durations in grid units (descending)
+    for size in [32, 16, 8, 4, 2, 1]:
+        if grid_units >= size:
+            return GRID_TO_GP[size], size
+    return 32, 1  # thirty-second note minimum
+
+
+def _add_rests(voice, grid_units):
+    """Fill a gap with rest beats using the largest durations that fit."""
+    remaining = grid_units
+    while remaining > 0:
+        for size in [32, 16, 8, 4, 2, 1]:
+            if size <= remaining:
+                beat = guitarpro.Beat(
+                    voice, status=guitarpro.BeatStatus.rest)
+                beat.duration = guitarpro.Duration(value=GRID_TO_GP[size])
+                voice.beats.append(beat)
+                remaining -= size
+                break
+
+
+def _fill_measure_voice(voice, events):
+    """Fill a measure's voice with properly timed beats and rests.
+
+    Args:
+        voice: guitarpro.Voice to populate
+        events: list of (grid_pos, grid_dur, beat_builder_fn)
+            grid_pos: 0-31 position within the measure
+            grid_dur: duration in grid units
+            beat_builder_fn: callable(voice) -> guitarpro.Beat with notes
+    """
+    cursor = 0
+    events.sort(key=lambda x: x[0])
+
+    for grid_pos, grid_dur, build_beat in events:
+        # Clamp to measure boundary
+        grid_pos = max(grid_pos, cursor)
+        if grid_pos >= GRID_PER_MEASURE:
+            break
+
+        # Insert rests for the gap before this event
+        if grid_pos > cursor:
+            _add_rests(voice, grid_pos - cursor)
+            cursor = grid_pos
+
+        # Clamp duration to remaining measure
+        grid_dur = min(grid_dur, GRID_PER_MEASURE - cursor)
+        if grid_dur <= 0:
+            continue
+
+        # Snap duration and create the beat
+        gp_value, actual_dur = _snap_grid_dur(grid_dur)
+        beat = build_beat(voice, gp_value)
+        voice.beats.append(beat)
+        cursor += actual_dur
+
+    # Fill remainder of measure with rests
+    if cursor < GRID_PER_MEASURE:
+        _add_rests(voice, GRID_PER_MEASURE - cursor)
+
+
+def _time_to_grid(time_sec, bpm, measure_start_sec):
+    """Convert an absolute time to a grid position within a measure.
+
+    Returns grid position (0-31) clamped to measure boundaries.
+    """
+    sec_per_grid = 60.0 / bpm / GRID_PER_BEAT
+    offset = time_sec - measure_start_sec
+    grid_pos = round(offset / sec_per_grid)
+    return max(0, min(grid_pos, GRID_PER_MEASURE - 1))
+
+
+def _dur_to_grid(dur_sec, bpm):
+    """Convert a duration in seconds to grid units."""
+    sec_per_grid = 60.0 / bpm / GRID_PER_BEAT
+    return max(1, round(dur_sec / sec_per_grid))
+
+
+def _make_note_beat_builder(note_data_list):
+    """Create a beat builder function for a group of simultaneous notes.
+
+    Args:
+        note_data_list: list of ((note_tuple, articulation), ...)
+    """
+    def build(voice, gp_dur_value):
+        beat = guitarpro.Beat(voice, status=guitarpro.BeatStatus.normal)
+        beat.duration = guitarpro.Duration(value=gp_dur_value)
+
+        for (note_data, art) in note_data_list:
+            _, _, _, vel, _, string_idx, fret = note_data
+            gp_string = 6 - string_idx
+
+            note = guitarpro.Note(beat)
+            note.value = fret
+            note.string = gp_string
+            note.velocity = min(max(vel, 1), 127)
+            note.effect = guitarpro.NoteEffect()
+
+            if art == ArticulationType.HAMMER_ON:
+                note.effect.hammer = True
+            elif art == ArticulationType.PULL_OFF:
+                note.effect.hammer = True
+            elif art in (ArticulationType.SLIDE_UP, ArticulationType.SLIDE_DOWN):
+                note.effect.slides = [guitarpro.SlideType.shiftSlideTo]
+            elif art == ArticulationType.BEND:
+                bend_effect = guitarpro.BendEffect()
+                bend_effect.type = guitarpro.BendType.bend
+                bend_effect.value = 100
+                bend_effect.points = [
+                    BendPoint(0, 0),
+                    BendPoint(6, 100),
+                    BendPoint(12, 100),
+                ]
+                note.effect.bend = bend_effect
+
+            beat.notes.append(note)
+        return beat
+    return build
+
+
+def _make_chord_beat_builder(voicing):
+    """Create a beat builder function for a chord."""
+    def build(voice, gp_dur_value):
+        beat = guitarpro.Beat(voice, status=guitarpro.BeatStatus.normal)
+        beat.duration = guitarpro.Duration(value=gp_dur_value)
+        for (gp_string, fret) in voicing:
+            note = guitarpro.Note(beat)
+            note.value = fret
+            note.string = gp_string
+            note.velocity = 80
+            beat.notes.append(note)
+        return beat
+    return build
 
 
 def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
@@ -74,30 +215,23 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
                     output_path="output.gp5"):
     """Create a Guitar Pro file with melody track and muted chord track.
 
-    Args:
-        fretted_notes: list of (time, note_name, freq, vel, dur, string, fret)
-        articulations: list of ArticulationType, one per note
-        bpm: tempo
-        key: key signature string
-        chords: list of (time, chord_name) — placed on separate muted track
-        title: song title
-        artist: artist name
-        output_path: where to save the .gp5 file
-
-    Returns:
-        Path to the written file.
+    All note onset times are quantized to a 32nd-note grid and gaps are
+    filled with rests so playback timing matches the original audio.
     """
     song = guitarpro.Song()
     song.title = title or "Untitled"
     song.artist = artist or ""
     song.tempo = int(bpm)
 
+    beats_per_sec = bpm / 60.0
+    sec_per_measure = 4.0 / beats_per_sec  # 4/4 time
+
     # --- Track 1: Melody ---
     melody_track = song.tracks[0]
     melody_track.name = "Melody"
     melody_track.number = 1
     melody_track.channel.channel = 0
-    melody_track.channel.instrument = 25  # Acoustic Guitar (steel)
+    melody_track.channel.instrument = 25
     melody_track.isPercussionTrack = False
     melody_track.strings = [
         guitarpro.GuitarString(1, 64),
@@ -126,11 +260,7 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
         guitarpro.GuitarString(6, 40),
     ]
 
-    beats_per_sec = bpm / 60.0
-    beats_per_measure = 4
-    sec_per_measure = beats_per_measure / beats_per_sec
-
-    # Determine number of measures needed
+    # Determine total measures needed
     max_time = 0.0
     if fretted_notes:
         max_time = max(max_time, max(n[0] + n[4] for n in fretted_notes))
@@ -144,20 +274,20 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
 
     num_measures = max(1, math.ceil(max_time / sec_per_measure) + 1)
 
-    # Ensure enough measures for both tracks
+    # Create measure headers and measures for both tracks
     while len(song.measureHeaders) < num_measures:
         header = guitarpro.MeasureHeader()
         song.measureHeaders.append(header)
         melody_track.measures.append(guitarpro.Measure(melody_track, header))
 
-    # Add chord track with matching measures
     for header in song.measureHeaders:
         chord_track.measures.append(guitarpro.Measure(chord_track, header))
     song.tracks.append(chord_track)
 
     # ==========================================
-    # Populate Track 1: Melody notes
+    # Build per-measure event lists for melody
     # ==========================================
+    # Group simultaneous notes
     note_groups = {}
     for i, n in enumerate(fretted_notes):
         t = round(n[0], 3)
@@ -166,59 +296,47 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
         art = articulations[i] if i < len(articulations) else ArticulationType.PICKED
         note_groups[t].append((n, art))
 
+    # Assign to measures with grid positions
+    melody_events_by_measure = {m: [] for m in range(num_measures)}
+
     for onset_time in sorted(note_groups.keys()):
         group = note_groups[onset_time]
-
         measure_idx = int(onset_time / sec_per_measure)
-        if measure_idx >= len(melody_track.measures):
+        if measure_idx >= num_measures:
             continue
 
-        measure = melody_track.measures[measure_idx]
-        beat = guitarpro.Beat(measure.voices[0])
-        dur_beats = group[0][0][4] * beats_per_sec
-        beat.duration = guitarpro.Duration(value=_duration_to_gp(dur_beats))
+        measure_start = measure_idx * sec_per_measure
+        grid_pos = _time_to_grid(onset_time, bpm, measure_start)
 
-        for (note_data, art) in group:
-            _, _, _, vel, _, string_idx, fret = note_data
-            gp_string = 6 - string_idx
+        # Use the first note's duration for the beat duration
+        note_dur = group[0][0][4]
+        grid_dur = _dur_to_grid(note_dur, bpm)
 
-            note = guitarpro.Note(beat)
-            note.value = fret
-            note.string = gp_string
-            note.velocity = min(max(vel, 1), 127)
-            note.effect = guitarpro.NoteEffect()
+        builder = _make_note_beat_builder(group)
+        melody_events_by_measure[measure_idx].append(
+            (grid_pos, grid_dur, builder))
 
-            if art == ArticulationType.HAMMER_ON:
-                note.effect.hammer = True
-            elif art == ArticulationType.PULL_OFF:
-                note.effect.hammer = True
-            elif art in (ArticulationType.SLIDE_UP, ArticulationType.SLIDE_DOWN):
-                note.effect.slides = [guitarpro.SlideType.shiftSlideTo]
-            elif art == ArticulationType.BEND:
-                bend = guitarpro.BendEffect()
-                bend.type = guitarpro.BendType.bend
-                bend.value = 100
-                bend.points = [
-                    BendPoint(0, 0),
-                    BendPoint(6, 100),
-                    BendPoint(12, 100),
-                ]
-                note.effect.bend = bend
-
-            beat.notes.append(note)
-
-        measure.voices[0].beats.append(beat)
+    # Fill each measure with properly timed beats + rests
+    for m_idx in range(num_measures):
+        if m_idx >= len(melody_track.measures):
+            break
+        measure = melody_track.measures[m_idx]
+        voice = measure.voices[0]
+        voice.beats.clear()
+        events = melody_events_by_measure[m_idx]
+        _fill_measure_voice(voice, events)
 
     # ==========================================
-    # Populate Track 2: Chords
+    # Build per-measure event lists for chords
     # ==========================================
     if chords:
+        chord_events_by_measure = {m: [] for m in range(num_measures)}
+
         for i, (chord_time, chord_name) in enumerate(chords):
             voicing = CHORD_VOICINGS.get(chord_name)
             if not voicing:
                 continue
 
-            # Chord duration: until next chord or 2 seconds
             if i + 1 < len(chords):
                 chord_dur = chords[i + 1][0] - chord_time
             else:
@@ -226,22 +344,25 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
             chord_dur = max(chord_dur, 0.25)
 
             measure_idx = int(chord_time / sec_per_measure)
-            if measure_idx >= len(chord_track.measures):
+            if measure_idx >= num_measures:
                 continue
 
-            measure = chord_track.measures[measure_idx]
-            beat = guitarpro.Beat(measure.voices[0])
-            dur_beats = chord_dur * beats_per_sec
-            beat.duration = guitarpro.Duration(value=_duration_to_gp(dur_beats))
+            measure_start = measure_idx * sec_per_measure
+            grid_pos = _time_to_grid(chord_time, bpm, measure_start)
+            grid_dur = _dur_to_grid(chord_dur, bpm)
 
-            for (gp_string, fret) in voicing:
-                note = guitarpro.Note(beat)
-                note.value = fret
-                note.string = gp_string
-                note.velocity = 80
-                beat.notes.append(note)
+            builder = _make_chord_beat_builder(voicing)
+            chord_events_by_measure[measure_idx].append(
+                (grid_pos, grid_dur, builder))
 
-            measure.voices[0].beats.append(beat)
+        for m_idx in range(num_measures):
+            if m_idx >= len(chord_track.measures):
+                break
+            measure = chord_track.measures[m_idx]
+            voice = measure.voices[0]
+            voice.beats.clear()
+            events = chord_events_by_measure[m_idx]
+            _fill_measure_voice(voice, events)
 
     guitarpro.write(song, output_path)
     return output_path
