@@ -326,14 +326,14 @@ def find_missing_notes(y, sr, notes, bpm, cqt=None, bin_notes=None,
     if verbose and new_notes:
         print(f"  Found {len(new_notes)} missing plucked notes")
 
-    # Pass 2: detect played harmonics (high notes growing while
-    # fundamentals decay — can't be sympathetic harmonics)
-    all_notes_so_far = list(notes) + new_notes
-    played_harms = _find_played_harmonics(
-        cqt, bin_notes, bin_freqs, all_notes_so_far, bpm, sr,
-        hop_length, verbose=verbose)
+    # Played harmonic detection is disabled — the dB-based approach
+    # finds too many false positives (68+ in a 2:24 song). Natural
+    # harmonics also can't be properly represented in GP5 without
+    # the harmonic effect marker, so detected harmonics would play
+    # at the wrong pitch (fret 5 = A4, not the harmonic E6).
+    # TODO: re-enable when GP harmonic effect support is added.
 
-    return new_notes + played_harms
+    return new_notes
 
 
 def _verify_chunk(args):
