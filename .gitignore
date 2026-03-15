@@ -1,0 +1,21 @@
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Downloaded audio files
+downloads/
+
+# FFmpeg binary
+.ffmpeg/
+
+# Sensitive files
+cookies.txt
+
+# Claude Code config
+.claude/
+
+# MIDI output (generated)
+*.mid
