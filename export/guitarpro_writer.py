@@ -114,10 +114,16 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
     # Pre-compute ranges for range-aware sustain
     onset_ranges = {t: _group_ranges(note_groups[t]) for t in sorted_onsets}
 
-    # Group onsets by measure
+    # Group onsets by measure.
+    # If a note's 16th-note slot falls at or past the measure boundary,
+    # assign it to the start of the next measure instead of dropping it.
     onsets_by_measure = {}
     for onset in sorted_onsets:
         m_idx = int(onset / spm)
+        m_start = m_idx * spm
+        slot = round((onset - m_start) / sec_per_16th)
+        if slot >= SLOTS_PER_MEASURE:
+            m_idx += 1  # overflow into next measure
         if m_idx not in onsets_by_measure:
             onsets_by_measure[m_idx] = []
         onsets_by_measure[m_idx].append(onset)
