@@ -90,7 +90,7 @@ def detect_notes(y, sr, bpm=120.0,
     tuning_offset = librosa.estimate_tuning(y=y_harmonic, sr=sr)
     fmin = librosa.note_to_hz("E2") * (2 ** (tuning_offset / 12))
 
-    n_semitones = 48
+    n_semitones = 52  # E2 to G6 (covers E6 harmonics)
     bins_per_semi = 3
     cqt_raw = np.abs(librosa.cqt(
         y=y_harmonic, sr=sr, fmin=fmin, hop_length=hop_length,
@@ -256,21 +256,42 @@ def detect_notes(y, sr, bpm=120.0,
     for t, notes_dict in grouped:
         ringing_before = {k: v for k, v in ringing.items() if t < v[0]}
 
+        # Two-pass ringing check: if ANY note at this onset has a fresh
+        # pluck (energy spike), treat ALL notes as fresh plucks.
+        # In fingerstyle, bass and melody are plucked together — if the
+        # onset detector found a transient, all notes present were plucked
+        # even if some were already ringing.
+        has_fresh_pluck = False
+        for note, (freq, mag) in notes_dict.items():
+            if note not in ringing or t >= ringing[note][0]:
+                has_fresh_pluck = True  # new note, not ringing
+                break
+            prev_onset_t = ringing[note][2]
+            if t - prev_onset_t < 0.10:
+                continue
+            note_bin = bin_notes.index(note) if note in bin_notes else None
+            if note_bin is not None:
+                onset_frame = librosa.time_to_frames(t, sr=sr, hop_length=hop_length)
+                pre_start = max(0, onset_frame - 3)
+                if onset_frame > pre_start:
+                    pre_mag = float(np.mean(cqt_semitone[note_bin, pre_start:onset_frame]))
+                else:
+                    pre_mag = 0.0
+                if pre_mag <= 0 or mag > pre_mag * 1.5:
+                    has_fresh_pluck = True
+                    break
+
         for note, (freq, mag) in sorted(notes_dict.items(), key=lambda x: x[1][0]):
             if note in ringing and t < ringing[note][0]:
                 prev_onset_t = ringing[note][2]
                 if t - prev_onset_t < 0.10:
                     continue
+                if not has_fresh_pluck:
+                    # No note at this onset has a spike — all are sustaining
+                    continue
+                # Fresh pluck confirmed at this onset — truncate old note
                 note_bin = bin_notes.index(note) if note in bin_notes else None
                 if note_bin is not None:
-                    onset_frame = librosa.time_to_frames(t, sr=sr, hop_length=hop_length)
-                    pre_start = max(0, onset_frame - 3)
-                    if onset_frame > pre_start:
-                        pre_mag = float(np.mean(cqt_semitone[note_bin, pre_start:onset_frame]))
-                    else:
-                        pre_mag = 0.0
-                    if pre_mag > 0 and mag <= pre_mag * 1.5:
-                        continue
                     prev_idx = ringing[note][1]
                     old = notes[prev_idx]
                     notes[prev_idx] = (old[0], old[1], old[2], old[3], max(t - old[0], 0.12))
