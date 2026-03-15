@@ -164,12 +164,29 @@ def detect_notes(y, sr, bpm=120.0,
         if not peaks:
             continue
 
+        # Helper: check if a bin has a pluck signature (energy spike
+        # at onset vs just before). Played notes spike; sympathetic
+        # harmonics track the fundamental's decay.
+        def _bin_has_pluck(bin_idx):
+            pre_start = max(0, onset_frame - 4)
+            if onset_frame <= pre_start:
+                return True
+            pre_e = float(np.mean(cqt_semitone[bin_idx, pre_start:onset_frame]))
+            if pre_e <= 0:
+                return True
+            return mag_window[bin_idx] / pre_e >= 3.0
+
         bass_idx = peaks[0]
         bass_harmonics = _harmonic_set(bass_idx)
         bass_mag = mag_window[bass_idx]
         real_bins = [bass_idx]
         for idx in peaks[1:]:
             if idx in bass_harmonics and mag_window[idx] < bass_mag * 2.0:
+                # Would be suppressed as harmonic — but check for pluck.
+                # If this bin has an energy spike, it was independently
+                # played (e.g. 5th fret harmonic), not sympathetic.
+                if _bin_has_pluck(idx):
+                    real_bins.append(idx)
                 continue
             real_bins.append(idx)
 
@@ -177,6 +194,9 @@ def detect_notes(y, sr, bpm=120.0,
         suppressed = {}
         for idx in sorted(real_bins):
             if idx in suppressed and mag_window[idx] < suppressed[idx] * 2.0:
+                if _bin_has_pluck(idx):
+                    final_bins.append(idx)
+                    continue
                 continue
             final_bins.append(idx)
             for h in harm_intervals:
