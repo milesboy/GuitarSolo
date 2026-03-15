@@ -181,12 +181,17 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
 
             remaining = SLOTS_PER_MEASURE - cursor
 
-            # Cap at next note in this measure
+            # Cap at next note in this measure IN THE SAME RANGE.
+            # Bass notes ring past melody onsets, melody rings past bass.
             avail = ring_slots
             if j + 1 < len(onsets):
-                next_slot = round((onsets[j + 1] - m_start) / sec_per_16th)
-                next_slot = max(0, min(next_slot, SLOTS_PER_MEASURE))
-                avail = min(avail, next_slot - cursor)
+                for k in range(j + 1, len(onsets)):
+                    future_ranges = onset_ranges[onsets[k]]
+                    if my_ranges & future_ranges:  # same range
+                        next_slot = round((onsets[k] - m_start) / sec_per_16th)
+                        next_slot = max(0, min(next_slot, SLOTS_PER_MEASURE))
+                        avail = min(avail, next_slot - cursor)
+                        break
             avail = max(avail, 1)
 
             note_dur = _snap_down(min(avail, remaining))

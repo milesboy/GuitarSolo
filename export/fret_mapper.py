@@ -10,8 +10,35 @@ import librosa
 
 from config import GUITAR_STRINGS
 
-# Default max fret — open position playing (covers most fingerstyle)
-DEFAULT_MAX_FRET = 7
+# Default max fret — full guitar range
+DEFAULT_MAX_FRET = 22
+
+# Natural harmonic touch positions: maps MIDI note -> (string_idx, touch_fret)
+# These are notes that can only be played as harmonics, not fretted
+# String indices: 0=low E, 1=A, 2=D, 3=G, 4=B, 5=high E
+NATURAL_HARMONICS = {
+    # 5th fret harmonics (4th harmonic = 2 octaves up)
+    64: (0, 5),   # E2 * 4 = E4 (also open string 5, but harmonic on 6)
+    69: (1, 5),   # A2 * 4 = A4
+    74: (2, 5),   # D3 * 4 = D5
+    79: (3, 5),   # G3 * 4 = G5
+    83: (4, 5),   # B3 * 4 = B5
+    88: (5, 5),   # E4 * 4 = E6
+    # 7th fret harmonics (3rd harmonic = octave + 5th)
+    52: (0, 7),   # E2 * 3 = B3
+    57: (1, 7),   # A2 * 3 = E4
+    62: (2, 7),   # D3 * 3 = A4
+    67: (3, 7),   # G3 * 3 = D5
+    71: (4, 7),   # B3 * 3 = F#5
+    76: (5, 7),   # E4 * 3 = B5
+    # 12th fret harmonics (2nd harmonic = octave)
+    52: (0, 12),  # E2 * 2 = E3 (also fretted, prefer fretted)
+    57: (1, 12),  # A2 * 2 = A3
+    62: (2, 12),  # D3 * 2 = D4
+    67: (3, 12),  # G3 * 2 = G4
+    71: (4, 12),  # B3 * 2 = B4
+    76: (5, 12),  # E4 * 2 = E5
+}
 
 
 def note_to_fret_options(midi_note, max_fret=DEFAULT_MAX_FRET):
@@ -32,11 +59,14 @@ def map_single_note(midi_note, prev_fret=None, prev_string=None,
                     max_fret=DEFAULT_MAX_FRET):
     """Choose the best (string, fret) for a single note.
 
-    Prefers lower frets, but considers proximity to previous note
-    for minimal hand movement.
+    Prefers lower frets. Falls back to natural harmonic positions
+    for notes above max_fret that match known harmonic frequencies.
     """
     options = note_to_fret_options(midi_note, max_fret)
     if not options:
+        # Try natural harmonic position
+        if midi_note in NATURAL_HARMONICS:
+            return NATURAL_HARMONICS[midi_note]
         return None
 
     if prev_fret is None:
