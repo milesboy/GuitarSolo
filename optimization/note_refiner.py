@@ -78,13 +78,136 @@ def _has_pluck_signature(cqt, note_bin, onset_frame, hop_length, sr):
     return onset_energy / pre_energy >= PLUCK_RATIO
 
 
+def _find_harmonics(cqt, bin_notes, bin_freqs, notes, bpm, sr,
+                    hop_length=256, verbose=True):
+    """Scan for natural harmonics (gradual onset, no sharp transient).
+
+    Natural harmonics emerge when a guitarist lightly touches the string
+    at a node point. Unlike plucked notes, they build up gradually over
+    ~200-400ms rather than having a sharp attack. They also produce a
+    very pure tone at specific harmonic ratios of the open string.
+
+    Scans at 64th-note intervals looking for bins where energy rises
+    significantly over a ~300ms window without a conventional onset.
+    """
+    sec_per_64th = 60.0 / bpm / 16
+    n_semitones = cqt.shape[0]
+    window = max(1, int(0.15 * sr / hop_length))
+    rise_window = max(1, int(0.35 * sr / hop_length))  # ~350ms to detect gradual rise
+
+    # Open string MIDI notes and their harmonic frequencies
+    # 5th fret harmonic = 4th harmonic (2 octaves up)
+    # 7th fret harmonic = 3rd harmonic (octave + 5th)
+    # 12th fret harmonic = 2nd harmonic (octave)
+    open_strings_midi = [40, 45, 50, 55, 59, 64]  # E2 A2 D3 G3 B3 E4
+    harmonic_bins = set()
+    for open_midi in open_strings_midi:
+        for multiplier, fret_name in [(2, "12th"), (3, "7th"), (4, "5th")]:
+            harm_midi = open_midi + round(12 * np.log2(multiplier))
+            if 0 <= harm_midi - 40 < n_semitones:
+                harmonic_bins.add(harm_midi - 40)  # bin index
+
+    # Build set of times already covered by notes
+    occupied_onsets = set()
+    for t, note, freq, vel, dur in notes:
+        slot = round(t / sec_per_64th)
+        for s in range(slot - 2, slot + 3):
+            occupied_onsets.add(s)
+
+    all_mags = cqt[cqt > 0]
+    if len(all_mags) == 0:
+        return []
+    threshold = np.percentile(all_mags, 65)
+
+    # Scan at every 8th-note position (every 8 64th-note slots)
+    total_frames = cqt.shape[1]
+    max_time = librosa.frames_to_time(total_frames, sr=sr, hop_length=hop_length)
+    scan_step = sec_per_64th * 8  # check every 8th note
+
+    new_harmonics = []
+    t = 0.5  # skip the very start
+
+    while t < max_time - 0.5:
+        slot = round(t / sec_per_64th)
+        if slot in occupied_onsets:
+            t += scan_step
+            continue
+
+        frame = librosa.time_to_frames(t, sr=sr, hop_length=hop_length)
+        if frame >= total_frames or frame < rise_window:
+            t += scan_step
+            continue
+
+        # Check energy at this point vs ~350ms before
+        for b in harmonic_bins:
+            if b >= MAX_GUITAR_BIN:
+                continue
+
+            now_energy = float(np.mean(
+                cqt[b, frame:min(frame + window, total_frames)]))
+            before_energy = float(np.mean(
+                cqt[b, frame - rise_window:frame]))
+
+            if now_energy < threshold:
+                continue
+
+            # Harmonic detection: at a known harmonic frequency, any
+            # growth (10%+) means new energy is being added — natural
+            # decay would show a declining ratio.  Require significant
+            # absolute energy to reject noise.
+            if before_energy > 0 and now_energy > threshold * 1.5:
+                ratio = now_energy / before_energy
+                if 1.1 <= ratio < PLUCK_RATIO:
+                    # Confirm it's a local peak (not leakage)
+                    mag_slice = np.mean(
+                        cqt[:, frame:min(frame + window, total_frames)], axis=1)
+                    left = mag_slice[b - 1] if b > 0 else 0
+                    right = mag_slice[b + 1] if b < n_semitones - 1 else 0
+                    if not (mag_slice[b] > left and mag_slice[b] > right):
+                        continue
+
+                    note_name = bin_notes[b]
+                    freq = bin_freqs[b]
+                    vel = int(min(100, max(40, 40 + 60 * (now_energy / threshold) ** 0.35)))
+
+                    # Duration: scan forward
+                    dur = 0.2
+                    check_frame = frame + int(0.1 * sr / hop_length)
+                    while check_frame < total_frames:
+                        e = float(np.mean(cqt[b, check_frame:min(
+                            check_frame + window, total_frames)]))
+                        if e < now_energy * 0.2:
+                            break
+                        dur += 0.1
+                        check_frame += int(0.1 * sr / hop_length)
+                        if dur > 4.0:
+                            break
+
+                    new_harmonics.append((t, note_name, freq, vel, dur))
+                    # Mark occupied
+                    for s in range(slot - 2, slot + int(dur / sec_per_64th) + 2):
+                        occupied_onsets.add(s)
+                    break  # one harmonic per time position
+
+        t += scan_step
+
+    if verbose and new_harmonics:
+        print(f"  Found {len(new_harmonics)} harmonics:")
+        for ht, hn, hf, hv, hd in new_harmonics[:5]:
+            print(f"    t={ht:.3f}s {hn} ({hf:.1f}Hz) dur={hd:.2f}s")
+
+    return new_harmonics
+
+
 def find_missing_notes(y, sr, notes, bpm, cqt=None, bin_notes=None,
                        bin_freqs=None, y_harm=None, verbose=True):
     """Scan for notes that the detector missed.
 
-    Only adds notes where there is a clear pluck signature (energy spike),
-    not where a previous note is simply still ringing/decaying.
-    Filters out notes above E5 (likely harmonics).
+    Two passes:
+    1. Pluck scan: conventional onsets with sharp transients
+    2. Harmonic scan: gradual energy rises at harmonic frequencies
+
+    Filters out notes above E5 (likely artifacts).
 
     Args:
         y: audio signal
@@ -184,10 +307,16 @@ def find_missing_notes(y, sr, notes, bpm, cqt=None, bin_notes=None,
         for s in range(slot - 1, slot + 2):
             occupied_onsets.add(s)
 
-    if verbose:
-        print(f"  Found {len(new_notes)} missing notes")
+    if verbose and new_notes:
+        print(f"  Found {len(new_notes)} missing plucked notes")
 
-    return new_notes
+    # Pass 2: scan for natural harmonics (gradual onset)
+    all_notes_so_far = list(notes) + new_notes
+    harmonics = _find_harmonics(
+        cqt, bin_notes, bin_freqs, all_notes_so_far, bpm, sr,
+        hop_length, verbose=verbose)
+
+    return new_notes + harmonics
 
 
 def _verify_chunk(args):
