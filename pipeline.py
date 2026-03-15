@@ -70,7 +70,7 @@ def run_pipeline(filepath, optimize=True, verbose=True):
     # --- Note detection ---
     if optimize:
         if verbose:
-            print("[3/7] Running parameter optimization...")
+            print("[3/8] Running parameter optimization...")
 
         from optimization.grid_search import grid_search, optimize_with_postprocess
 
@@ -88,16 +88,22 @@ def run_pipeline(filepath, optimize=True, verbose=True):
                   f"score={final_score:.3f}")
     else:
         if verbose:
-            print("[3/7] Detecting notes (single pass)...", end=" ", flush=True)
+            print("[3/8] Detecting notes (single pass)...", end=" ", flush=True)
         notes = detect_notes(y, sr, bpm)
         best_params = {}
         final_score = None
         if verbose:
             print(f"{len(notes)} notes")
 
+    # --- Note refinement ---
+    if verbose:
+        print("[4/8] Refining notes...", flush=True)
+    from optimization.note_refiner import refine_notes
+    notes = refine_notes(y, sr, notes, bpm, verbose=verbose)
+
     # --- Articulation detection ---
     if verbose:
-        print("[4/7] Detecting articulations...", end=" ", flush=True)
+        print("[5/8] Detecting articulations...", end=" ", flush=True)
     articulations = detect_articulations(y, sr, notes)
     art_counts = {}
     for a in articulations:
@@ -109,7 +115,7 @@ def run_pipeline(filepath, optimize=True, verbose=True):
 
     # --- Fret mapping ---
     if verbose:
-        print("[5/7] Mapping to fretboard...", end=" ", flush=True)
+        print("[6/8] Mapping to fretboard...", end=" ", flush=True)
     fretted = map_notes_sequence(notes)
     if verbose:
         frets_used = set(n[-1] for n in fretted if n[-1] > 0)
@@ -118,7 +124,7 @@ def run_pipeline(filepath, optimize=True, verbose=True):
 
     # --- Export Guitar Pro ---
     if verbose:
-        print("[6/7] Exporting Guitar Pro...", end=" ", flush=True)
+        print("[7/8] Exporting Guitar Pro...", end=" ", flush=True)
     gp_path = os.path.splitext(filepath)[0] + ".gp5"
     title = os.path.splitext(os.path.basename(filepath))[0]
     # GP5 uses cp1252 encoding — strip incompatible characters
@@ -132,7 +138,7 @@ def run_pipeline(filepath, optimize=True, verbose=True):
 
     # --- Export MIDI ---
     if verbose:
-        print("[7/7] Exporting MIDI...", end=" ", flush=True)
+        print("[8/8] Exporting MIDI...", end=" ", flush=True)
     midi_path = write_midi(filepath, bpm, notes, chords)
     if verbose:
         print(f"{os.path.basename(midi_path)}")
