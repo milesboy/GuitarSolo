@@ -307,16 +307,10 @@ def find_missing_notes(y, sr, notes, bpm, cqt=None, bin_notes=None,
         for s in range(slot - 1, slot + 2):
             occupied_onsets.add(s)
 
-    if verbose and new_notes:
-        print(f"  Found {len(new_notes)} missing plucked notes")
+    if verbose:
+        print(f"  Found {len(new_notes)} missing notes")
 
-    # Pass 2: scan for natural harmonics (gradual onset)
-    all_notes_so_far = list(notes) + new_notes
-    harmonics = _find_harmonics(
-        cqt, bin_notes, bin_freqs, all_notes_so_far, bpm, sr,
-        hop_length, verbose=verbose)
-
-    return new_notes + harmonics
+    return new_notes
 
 
 def _verify_chunk(args):
