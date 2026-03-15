@@ -11,8 +11,7 @@ Key principles:
 """
 import librosa
 import numpy as np
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-import multiprocessing
+from concurrent.futures import ThreadPoolExecutor
 
 # Maximum CQT bin for real guitar notes (E5 = bin 36)
 # Notes above this are almost certainly harmonics, not fretted notes
@@ -287,7 +286,7 @@ def verify_notes(y, sr, notes, cqt=None, bin_notes=None, bin_freqs=None,
 
     # Split notes into chunks for parallel processing
     indexed_notes = list(enumerate(notes))
-    n_workers = min(multiprocessing.cpu_count(), 8)
+    n_workers = 4
     chunk_size = max(1, len(indexed_notes) // n_workers)
     chunks = []
     for start in range(0, len(indexed_notes), chunk_size):
