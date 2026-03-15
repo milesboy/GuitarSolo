@@ -17,18 +17,19 @@ from articulation.detector import ArticulationType
 
 CHROMA_NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
-# 32nd-note grid: 32 slots per measure in 4/4
-GRID_PER_BEAT = 8  # 8 grid slots per quarter note
-GRID_PER_MEASURE = 32  # 4 beats * 8
+# 64th-note grid: 64 slots per measure in 4/4
+GRID_PER_BEAT = 16  # 16 grid slots per quarter note
+GRID_PER_MEASURE = 64  # 4 beats * 16
 
 # Grid units -> GP Duration.value
 GRID_TO_GP = {
-    32: 1,   # whole
-    16: 2,   # half
-    8:  4,   # quarter
-    4:  8,   # eighth
-    2:  16,  # sixteenth
-    1:  32,  # thirty-second
+    64: 1,   # whole
+    32: 2,   # half
+    16: 4,   # quarter
+    8:  8,   # eighth
+    4:  16,  # sixteenth
+    2:  32,  # thirty-second
+    1:  64,  # sixty-fourth
 }
 
 # Chord voicings as (string, fret) lists — open position shapes
@@ -75,18 +76,17 @@ def _snap_grid_dur(grid_units):
     Returns (gp_value, actual_grid_units) — the GP Duration.value and
     how many grid slots it actually consumes.
     """
-    # Valid durations in grid units (descending)
-    for size in [32, 16, 8, 4, 2, 1]:
+    for size in [64, 32, 16, 8, 4, 2, 1]:
         if grid_units >= size:
             return GRID_TO_GP[size], size
-    return 32, 1  # thirty-second note minimum
+    return 64, 1  # sixty-fourth note minimum
 
 
 def _add_rests(voice, grid_units):
     """Fill a gap with rest beats using the largest durations that fit."""
     remaining = grid_units
     while remaining > 0:
-        for size in [32, 16, 8, 4, 2, 1]:
+        for size in [64, 32, 16, 8, 4, 2, 1]:
             if size <= remaining:
                 beat = guitarpro.Beat(
                     voice, status=guitarpro.BeatStatus.rest)
@@ -96,21 +96,54 @@ def _add_rests(voice, grid_units):
                 break
 
 
-def _fill_measure_voice(voice, events):
+def _make_tie_beat(voice, gp_dur_value, source_beat):
+    """Create a tied beat that continues notes from a previous beat."""
+    beat = guitarpro.Beat(voice, status=guitarpro.BeatStatus.normal)
+    beat.duration = guitarpro.Duration(value=gp_dur_value)
+    for src_note in source_beat.notes:
+        note = guitarpro.Note(beat)
+        note.value = src_note.value
+        note.string = src_note.string
+        note.velocity = src_note.velocity
+        note.type = guitarpro.NoteType.tie
+        beat.notes.append(note)
+    return beat
+
+
+def _fill_measure_voice(voice, events, carry_in=None):
     """Fill a measure's voice with properly timed beats and rests.
 
     Args:
         voice: guitarpro.Voice to populate
         events: list of (grid_pos, grid_dur, beat_builder_fn)
-            grid_pos: 0-31 position within the measure
-            grid_dur: duration in grid units
-            beat_builder_fn: callable(voice) -> guitarpro.Beat with notes
+        carry_in: (overflow_grid_units, source_beat) from previous measure
+            — tied notes that ring across the bar line
+
+    Returns:
+        carry_out: (overflow_grid_units, source_beat) or None
+            — if the last note rings past this measure's end
     """
     cursor = 0
     events.sort(key=lambda x: x[0])
+    carry_out = None
+
+    # Handle tied notes from previous measure — chain multiple tied
+    # beats to fill the full overflow duration
+    if carry_in is not None:
+        overflow, src_beat = carry_in
+        first_event_pos = events[0][0] if events else GRID_PER_MEASURE
+        tie_remaining = min(overflow, GRID_PER_MEASURE, first_event_pos)
+        while tie_remaining > 0:
+            for size in [64, 32, 16, 8, 4, 2, 1]:
+                if size <= tie_remaining:
+                    tie_beat = _make_tie_beat(
+                        voice, GRID_TO_GP[size], src_beat)
+                    voice.beats.append(tie_beat)
+                    cursor += size
+                    tie_remaining -= size
+                    break
 
     for grid_pos, grid_dur, build_beat in events:
-        # Clamp to measure boundary
         grid_pos = max(grid_pos, cursor)
         if grid_pos >= GRID_PER_MEASURE:
             break
@@ -120,20 +153,30 @@ def _fill_measure_voice(voice, events):
             _add_rests(voice, grid_pos - cursor)
             cursor = grid_pos
 
-        # Clamp duration to remaining measure
-        grid_dur = min(grid_dur, GRID_PER_MEASURE - cursor)
-        if grid_dur <= 0:
-            continue
+        remaining_in_measure = GRID_PER_MEASURE - cursor
+        if remaining_in_measure <= 0:
+            break
 
-        # Snap duration and create the beat
-        gp_value, actual_dur = _snap_grid_dur(grid_dur)
-        beat = build_beat(voice, gp_value)
-        voice.beats.append(beat)
-        cursor += actual_dur
+        if grid_dur <= remaining_in_measure:
+            # Note fits entirely in this measure
+            gp_value, actual_dur = _snap_grid_dur(grid_dur)
+            beat = build_beat(voice, gp_value)
+            voice.beats.append(beat)
+            cursor += actual_dur
+        else:
+            # Note overflows into next measure — place what fits here,
+            # return the overflow for the next measure as a tie
+            gp_value, actual_dur = _snap_grid_dur(remaining_in_measure)
+            beat = build_beat(voice, gp_value)
+            voice.beats.append(beat)
+            carry_out = (grid_dur - actual_dur, beat)
+            cursor += actual_dur
 
     # Fill remainder of measure with rests
     if cursor < GRID_PER_MEASURE:
         _add_rests(voice, GRID_PER_MEASURE - cursor)
+
+    return carry_out
 
 
 def _time_to_grid(time_sec, bpm, measure_start_sec):
@@ -296,10 +339,14 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
         art = articulations[i] if i < len(articulations) else ArticulationType.PICKED
         note_groups[t].append((n, art))
 
-    # Assign to measures with grid positions
+    # Compute note durations: ring until next onset or end of sustain,
+    # whichever comes first (notes ring as long as the WAV shows them
+    # sustaining, but never past the next note event)
+    sorted_onsets = sorted(note_groups.keys())
+
     melody_events_by_measure = {m: [] for m in range(num_measures)}
 
-    for onset_time in sorted(note_groups.keys()):
+    for idx, onset_time in enumerate(sorted_onsets):
         group = note_groups[onset_time]
         measure_idx = int(onset_time / sec_per_measure)
         if measure_idx >= num_measures:
@@ -308,15 +355,25 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
         measure_start = measure_idx * sec_per_measure
         grid_pos = _time_to_grid(onset_time, bpm, measure_start)
 
-        # Use the first note's duration for the beat duration
-        note_dur = group[0][0][4]
-        grid_dur = _dur_to_grid(note_dur, bpm)
+        # Detected sustain duration from WAV analysis
+        sustain_dur = max(n[0][4] for n in group)
+
+        # Gap to next onset — note rings at most until then
+        if idx + 1 < len(sorted_onsets):
+            gap_to_next = sorted_onsets[idx + 1] - onset_time
+            ring_dur = min(sustain_dur, gap_to_next)
+        else:
+            ring_dur = sustain_dur
+
+        grid_dur = _dur_to_grid(ring_dur, bpm)
 
         builder = _make_note_beat_builder(group)
         melody_events_by_measure[measure_idx].append(
             (grid_pos, grid_dur, builder))
 
-    # Fill each measure with properly timed beats + rests
+    # Fill each measure with properly timed beats + rests,
+    # carrying tied notes across bar lines
+    carry = None
     for m_idx in range(num_measures):
         if m_idx >= len(melody_track.measures):
             break
@@ -324,7 +381,7 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
         voice = measure.voices[0]
         voice.beats.clear()
         events = melody_events_by_measure[m_idx]
-        _fill_measure_voice(voice, events)
+        carry = _fill_measure_voice(voice, events, carry_in=carry)
 
     # ==========================================
     # Build per-measure event lists for chords
@@ -355,6 +412,7 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
             chord_events_by_measure[measure_idx].append(
                 (grid_pos, grid_dur, builder))
 
+        chord_carry = None
         for m_idx in range(num_measures):
             if m_idx >= len(chord_track.measures):
                 break
@@ -362,7 +420,8 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
             voice = measure.voices[0]
             voice.beats.clear()
             events = chord_events_by_measure[m_idx]
-            _fill_measure_voice(voice, events)
+            chord_carry = _fill_measure_voice(
+                voice, events, carry_in=chord_carry)
 
     guitarpro.write(song, output_path)
     return output_path
