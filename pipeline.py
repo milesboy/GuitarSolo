@@ -101,6 +101,24 @@ def run_pipeline(filepath, optimize=True, verbose=True):
     from optimization.note_refiner import refine_notes
     notes = refine_notes(y, sr, notes, bpm, verbose=verbose)
 
+    # --- Filter notes above guitar range (E6 = MIDI 88) ---
+    # E6 is the highest natural harmonic (5th fret on high E string)
+    max_midi = 88  # E6
+    before_count = len(notes)
+    filtered = []
+    for n in notes:
+        note_clean = n[1].replace("\u266f", "#").replace("\u266d", "b")
+        try:
+            midi = librosa.note_to_midi(note_clean)
+            if midi <= max_midi:
+                filtered.append(n)
+        except Exception:
+            filtered.append(n)
+    notes = filtered
+    killed = before_count - len(notes)
+    if verbose and killed > 0:
+        print(f"  Removed {killed} notes above D6")
+
     # --- Articulation detection ---
     if verbose:
         print("[5/8] Detecting articulations...", end=" ", flush=True)

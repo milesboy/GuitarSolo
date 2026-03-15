@@ -13,7 +13,36 @@ import guitarpro
 from guitarpro.models import BendPoint
 import math
 
+import librosa
+
 from articulation.detector import ArticulationType
+
+# Voice ranges for independent sustain — bass notes ring through
+# melody events and vice versa, just like real fingerstyle guitar
+# where thumb (bass) and fingers (melody) operate independently.
+BASS_RANGE = (40, 55)    # E2 to G3 — thumb/bass strings
+MELODY_RANGE = (56, 88)  # G#3 to E6 — finger/melody strings + harmonics
+MAX_GUITAR_MIDI = 88     # E6 — highest harmonic (5th fret, 1st string)
+
+
+def _note_range(note_name):
+    """Classify a note into bass or melody range."""
+    try:
+        midi = librosa.note_to_midi(
+            note_name.replace("\u266f", "#").replace("\u266d", "b"))
+    except Exception:
+        return "melody"
+    if midi <= BASS_RANGE[1]:
+        return "bass"
+    return "melody"
+
+
+def _group_range(group):
+    """Determine the range(s) present in a note group."""
+    ranges = set()
+    for (note_data, _art) in group:
+        ranges.add(_note_range(note_data[1]))
+    return ranges
 
 CHROMA_NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
@@ -373,10 +402,17 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
         art = articulations[i] if i < len(articulations) else ArticulationType.PICKED
         note_groups[t].append((n, art))
 
-    # Compute note durations: ring until next onset or end of sustain,
-    # whichever comes first (notes ring as long as the WAV shows them
-    # sustaining, but never past the next note event)
+    # Compute note durations with range-aware sustain:
+    # Bass notes (E2-G3) ring independently of melody notes (G#3-D6).
+    # A bass note only stops when the NEXT BASS event starts, not when
+    # a melody event occurs (and vice versa). This models fingerstyle
+    # guitar where thumb and fingers operate independently.
     sorted_onsets = sorted(note_groups.keys())
+
+    # Pre-compute ranges for each onset
+    onset_ranges = {}
+    for onset_time in sorted_onsets:
+        onset_ranges[onset_time] = _group_range(note_groups[onset_time])
 
     melody_events_by_measure = {m: [] for m in range(num_measures)}
 
@@ -392,9 +428,18 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
         # Detected sustain duration from WAV analysis
         sustain_dur = max(n[0][4] for n in group)
 
-        # Gap to next onset — note rings at most until then
-        if idx + 1 < len(sorted_onsets):
-            gap_to_next = sorted_onsets[idx + 1] - onset_time
+        # Find the next onset that shares a voice range with this one.
+        # Bass notes ring past melody onsets; melody rings past bass.
+        my_ranges = onset_ranges[onset_time]
+        gap_to_next = None
+        for future_idx in range(idx + 1, len(sorted_onsets)):
+            future_time = sorted_onsets[future_idx]
+            future_ranges = onset_ranges[future_time]
+            if my_ranges & future_ranges:  # overlapping ranges
+                gap_to_next = future_time - onset_time
+                break
+
+        if gap_to_next is not None:
             ring_dur = min(sustain_dur, gap_to_next)
         else:
             ring_dur = sustain_dur

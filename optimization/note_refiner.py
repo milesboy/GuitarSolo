@@ -13,9 +13,9 @@ import librosa
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 
-# Maximum CQT bin for real guitar notes (E5 = bin 36)
-# Notes above this are almost certainly harmonics, not fretted notes
-MAX_GUITAR_BIN = 36
+# Maximum CQT bin for guitar notes including harmonics (E6 = bin 48)
+# E6 is the highest natural harmonic (5th fret on high E string)
+MAX_GUITAR_BIN = 48  # full CQT range — E6 = MIDI 88
 
 # Minimum energy spike ratio to confirm a pluck (onset vs pre-onset)
 PLUCK_RATIO = 2.0
