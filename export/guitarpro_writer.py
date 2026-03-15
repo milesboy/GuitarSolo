@@ -277,6 +277,7 @@ def _make_note_beat_builder(note_data_list):
             note.value = fret
             note.string = gp_string
             note.velocity = min(max(vel, 1), 127)
+            note.type = guitarpro.NoteType.normal
             note.effect = guitarpro.NoteEffect()
 
             if art == ArticulationType.HAMMER_ON:
@@ -311,6 +312,7 @@ def _make_chord_beat_builder(voicing):
             note.value = fret
             note.string = gp_string
             note.velocity = 80
+            note.type = guitarpro.NoteType.normal
             beat.notes.append(note)
         return beat
     return build
