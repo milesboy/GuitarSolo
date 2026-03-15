@@ -27,7 +27,7 @@ def _build_cqt(y, sr, hop_length=256):
     tuning_offset = librosa.estimate_tuning(y=y_harmonic, sr=sr)
     fmin = librosa.note_to_hz("E2") * (2 ** (tuning_offset / 12))
 
-    n_semitones = 48
+    n_semitones = 52  # E2 to G6 (covers E6 harmonics)
     bins_per_semi = 3
     cqt_raw = np.abs(librosa.cqt(
         y=y_harmonic, sr=sr, fmin=fmin, hop_length=hop_length,
@@ -78,121 +78,137 @@ def _has_pluck_signature(cqt, note_bin, onset_frame, hop_length, sr):
     return onset_energy / pre_energy >= PLUCK_RATIO
 
 
-def _find_harmonics(cqt, bin_notes, bin_freqs, notes, bpm, sr,
-                    hop_length=256, verbose=True):
-    """Scan for natural harmonics (gradual onset, no sharp transient).
+def _find_played_harmonics(cqt, bin_notes, bin_freqs, notes, bpm, sr,
+                           hop_length=256, verbose=True):
+    """Detect natural harmonics by finding high notes whose energy is
+    GROWING while their potential fundamentals are DECAYING.
 
-    Natural harmonics emerge when a guitarist lightly touches the string
-    at a node point. Unlike plucked notes, they build up gradually over
-    ~200-400ms rather than having a sharp attack. They also produce a
-    very pure tone at specific harmonic ratios of the open string.
+    A sympathetic harmonic decays with its fundamental. A played harmonic
+    (guitarist touches string at node point) shows independent energy —
+    it grows or appears while the fundamental is stable or decaying.
 
-    Scans at 64th-note intervals looking for bins where energy rises
-    significantly over a ~300ms window without a conventional onset.
+    Uses dB-normalized CQT for perceptually accurate comparison across
+    the frequency range.
     """
-    sec_per_64th = 60.0 / bpm / 16
     n_semitones = cqt.shape[0]
+    total_frames = cqt.shape[1]
+    sec_per_64th = 60.0 / bpm / 16
     window = max(1, int(0.15 * sr / hop_length))
-    rise_window = max(1, int(0.35 * sr / hop_length))  # ~350ms to detect gradual rise
+    look_back = max(1, int(0.4 * sr / hop_length))  # 400ms lookback
 
-    # Open string MIDI notes and their harmonic frequencies
-    # 5th fret harmonic = 4th harmonic (2 octaves up)
-    # 7th fret harmonic = 3rd harmonic (octave + 5th)
-    # 12th fret harmonic = 2nd harmonic (octave)
-    open_strings_midi = [40, 45, 50, 55, 59, 64]  # E2 A2 D3 G3 B3 E4
-    harmonic_bins = set()
-    for open_midi in open_strings_midi:
-        for multiplier, fret_name in [(2, "12th"), (3, "7th"), (4, "5th")]:
-            harm_midi = open_midi + round(12 * np.log2(multiplier))
-            if 0 <= harm_midi - 40 < n_semitones:
-                harmonic_bins.add(harm_midi - 40)  # bin index
+    # Convert to dB
+    cqt_db = librosa.amplitude_to_db(cqt, ref=np.max(cqt))
 
-    # Build set of times already covered by notes
-    occupied_onsets = set()
+    # Only scan bins above E5 (bin 36) — fretted notes are below this
+    HIGH_START = 36
+    DB_THRESHOLD = -45.0  # minimum dB to consider
+    GROWTH_DB = 12.0  # must grow by at least 12 dB
+
+    # Harmonic ratios: for each high bin, which lower bins could explain it
+    harm_ratios = [2, 3, 4, 5, 6, 7, 8]
+
+    # Build occupied set
+    occupied = set()
     for t, note, freq, vel, dur in notes:
         slot = round(t / sec_per_64th)
         for s in range(slot - 2, slot + 3):
-            occupied_onsets.add(s)
+            occupied.add(s)
 
-    all_mags = cqt[cqt > 0]
-    if len(all_mags) == 0:
-        return []
-    threshold = np.percentile(all_mags, 65)
-
-    # Scan at every 8th-note position (every 8 64th-note slots)
-    total_frames = cqt.shape[1]
+    scan_step = sec_per_64th * 4  # check every 16th note
     max_time = librosa.frames_to_time(total_frames, sr=sr, hop_length=hop_length)
-    scan_step = sec_per_64th * 8  # check every 8th note
 
     new_harmonics = []
-    t = 0.5  # skip the very start
+    t = 0.5
 
     while t < max_time - 0.5:
         slot = round(t / sec_per_64th)
-        if slot in occupied_onsets:
+        if slot in occupied:
             t += scan_step
             continue
 
         frame = librosa.time_to_frames(t, sr=sr, hop_length=hop_length)
-        if frame >= total_frames or frame < rise_window:
+        if frame >= total_frames or frame < look_back:
             t += scan_step
             continue
 
-        # Check energy at this point vs ~350ms before
-        for b in harmonic_bins:
-            if b >= MAX_GUITAR_BIN:
+        for b in range(HIGH_START, n_semitones):
+            now_db = float(np.mean(
+                cqt_db[b, frame:min(frame + window, total_frames)]))
+            if now_db < DB_THRESHOLD:
                 continue
 
-            now_energy = float(np.mean(
-                cqt[b, frame:min(frame + window, total_frames)]))
-            before_energy = float(np.mean(
-                cqt[b, frame - rise_window:frame]))
+            before_db = float(np.mean(
+                cqt_db[b, frame - look_back:frame]))
 
-            if now_energy < threshold:
+            growth = now_db - before_db
+            if growth < GROWTH_DB:
+                continue  # not growing enough
+
+            # Check: is any potential fundamental ALSO growing?
+            # If so, this could be a sympathetic harmonic
+            high_midi = 40 + b
+            high_freq = librosa.midi_to_hz(high_midi)
+            explained_by_growing_fundamental = False
+
+            for ratio in harm_ratios:
+                fund_freq = high_freq / ratio
+                fund_midi = int(round(librosa.hz_to_midi(fund_freq)))
+                fund_bin = fund_midi - 40
+                if fund_bin < 0 or fund_bin >= HIGH_START:
+                    continue
+
+                fund_now = float(np.mean(
+                    cqt_db[fund_bin, frame:min(frame + window, total_frames)]))
+                fund_before = float(np.mean(
+                    cqt_db[fund_bin, frame - look_back:frame]))
+                fund_growth = fund_now - fund_before
+
+                # Only explained if fundamental is strong AND growing.
+                # A weak harmonic (like A4 being a harmonic of A2)
+                # doesn't count as a "fundamental" — it's just another
+                # harmonic in the chain.
+                if fund_growth > 3.0 and fund_now > -15.0:
+                    explained_by_growing_fundamental = True
+                    break
+
+            if explained_by_growing_fundamental:
                 continue
 
-            # Harmonic detection: at a known harmonic frequency, any
-            # growth (10%+) means new energy is being added — natural
-            # decay would show a declining ratio.  Require significant
-            # absolute energy to reject noise.
-            if before_energy > 0 and now_energy > threshold * 1.5:
-                ratio = now_energy / before_energy
-                if 1.1 <= ratio < PLUCK_RATIO:
-                    # Confirm it's a local peak (not leakage)
-                    mag_slice = np.mean(
-                        cqt[:, frame:min(frame + window, total_frames)], axis=1)
-                    left = mag_slice[b - 1] if b > 0 else 0
-                    right = mag_slice[b + 1] if b < n_semitones - 1 else 0
-                    if not (mag_slice[b] > left and mag_slice[b] > right):
-                        continue
+            # Confirm local spectral peak
+            mag_now = np.mean(cqt[:, frame:min(frame + window, total_frames)], axis=1)
+            left = mag_now[b - 1] if b > 0 else 0
+            right = mag_now[b + 1] if b < n_semitones - 1 else 0
+            if not (mag_now[b] > left and mag_now[b] > right):
+                continue
 
-                    note_name = bin_notes[b]
-                    freq = bin_freqs[b]
-                    vel = int(min(100, max(40, 40 + 60 * (now_energy / threshold) ** 0.35)))
+            # This is a played harmonic!
+            note_name = bin_notes[b]
+            freq = bin_freqs[b]
+            vel = int(min(100, max(50, 50 + 50 * (1.0 + now_db / 40.0))))
 
-                    # Duration: scan forward
-                    dur = 0.2
-                    check_frame = frame + int(0.1 * sr / hop_length)
-                    while check_frame < total_frames:
-                        e = float(np.mean(cqt[b, check_frame:min(
-                            check_frame + window, total_frames)]))
-                        if e < now_energy * 0.2:
-                            break
-                        dur += 0.1
-                        check_frame += int(0.1 * sr / hop_length)
-                        if dur > 4.0:
-                            break
+            # Duration: scan forward until energy drops
+            dur = 0.2
+            check_frame = frame + int(0.1 * sr / hop_length)
+            while check_frame < total_frames:
+                e = float(np.mean(
+                    cqt_db[b, check_frame:min(
+                        check_frame + window, total_frames)]))
+                if e < now_db - 15:  # dropped 15 dB from peak
+                    break
+                dur += 0.1
+                check_frame += int(0.1 * sr / hop_length)
+                if dur > 4.0:
+                    break
 
-                    new_harmonics.append((t, note_name, freq, vel, dur))
-                    # Mark occupied
-                    for s in range(slot - 2, slot + int(dur / sec_per_64th) + 2):
-                        occupied_onsets.add(s)
-                    break  # one harmonic per time position
+            new_harmonics.append((t, note_name, freq, vel, dur))
+            for s in range(slot - 2, slot + int(dur / sec_per_64th) + 2):
+                occupied.add(s)
+            break  # one per time position
 
         t += scan_step
 
-    if verbose and new_harmonics:
-        print(f"  Found {len(new_harmonics)} harmonics:")
+    if verbose:
+        print(f"  Found {len(new_harmonics)} played harmonics")
         for ht, hn, hf, hv, hd in new_harmonics[:5]:
             print(f"    t={ht:.3f}s {hn} ({hf:.1f}Hz) dur={hd:.2f}s")
 
@@ -307,10 +323,17 @@ def find_missing_notes(y, sr, notes, bpm, cqt=None, bin_notes=None,
         for s in range(slot - 1, slot + 2):
             occupied_onsets.add(s)
 
-    if verbose:
-        print(f"  Found {len(new_notes)} missing notes")
+    if verbose and new_notes:
+        print(f"  Found {len(new_notes)} missing plucked notes")
 
-    return new_notes
+    # Pass 2: detect played harmonics (high notes growing while
+    # fundamentals decay — can't be sympathetic harmonics)
+    all_notes_so_far = list(notes) + new_notes
+    played_harms = _find_played_harmonics(
+        cqt, bin_notes, bin_freqs, all_notes_so_far, bpm, sr,
+        hop_length, verbose=verbose)
+
+    return new_notes + played_harms
 
 
 def _verify_chunk(args):
