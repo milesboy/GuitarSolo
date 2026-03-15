@@ -17,20 +17,27 @@ from articulation.detector import ArticulationType
 
 CHROMA_NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
-# 64th-note grid: 64 slots per measure in 4/4
+# Internal grid: 64th notes for precise detection
 GRID_PER_BEAT = 16  # 16 grid slots per quarter note
 GRID_PER_MEASURE = 64  # 4 beats * 16
 
-# Grid units -> GP Duration.value
+# Output quantization: snap to 16th notes (4 grid units)
+# Removes human timing imprecision — most guitar music uses 8th/16th
+# note subdivisions at fastest.  Internal 64th grid ensures we don't
+# miss anything; quantization rounds to the musical grid.
+QUANTIZE = 4  # grid units per 16th note
+
+# Grid units -> GP Duration.value (only 16th and larger after quantize)
 GRID_TO_GP = {
     64: 1,   # whole
     32: 2,   # half
     16: 4,   # quarter
     8:  8,   # eighth
     4:  16,  # sixteenth
-    2:  32,  # thirty-second
-    1:  64,  # sixty-fourth
 }
+
+# Valid duration sizes for quantized output (descending)
+VALID_SIZES = [64, 32, 16, 8, 4]
 
 # Chord voicings as (string, fret) lists — open position shapes
 # String numbering: 1=high E, 2=B, 3=G, 4=D, 5=A, 6=low E
@@ -70,23 +77,33 @@ CHORD_VOICINGS["Bb"] = CHORD_VOICINGS["A#"]
 CHORD_VOICINGS["Bbm"] = CHORD_VOICINGS["A#m"]
 
 
+def _quantize_pos(grid_pos):
+    """Snap a grid position to the nearest quantized boundary."""
+    return round(grid_pos / QUANTIZE) * QUANTIZE
+
+
+def _quantize_dur(grid_units):
+    """Snap a duration to the nearest quantized value (min 1 quantum)."""
+    return max(QUANTIZE, round(grid_units / QUANTIZE) * QUANTIZE)
+
+
 def _snap_grid_dur(grid_units):
     """Snap a duration in grid units to the nearest valid GP duration.
 
     Returns (gp_value, actual_grid_units) — the GP Duration.value and
     how many grid slots it actually consumes.
     """
-    for size in [64, 32, 16, 8, 4, 2, 1]:
+    for size in VALID_SIZES:
         if grid_units >= size:
             return GRID_TO_GP[size], size
-    return 64, 1  # sixty-fourth note minimum
+    return GRID_TO_GP[QUANTIZE], QUANTIZE  # sixteenth note minimum
 
 
 def _add_rests(voice, grid_units):
     """Fill a gap with rest beats using the largest durations that fit."""
     remaining = grid_units
     while remaining > 0:
-        for size in [64, 32, 16, 8, 4, 2, 1]:
+        for size in VALID_SIZES:
             if size <= remaining:
                 beat = guitarpro.Beat(
                     voice, status=guitarpro.BeatStatus.rest)
@@ -94,6 +111,8 @@ def _add_rests(voice, grid_units):
                 voice.beats.append(beat)
                 remaining -= size
                 break
+        else:
+            break  # safety: no valid size fits
 
 
 def _make_tie_beat(voice, gp_dur_value, source_beat):
@@ -133,8 +152,11 @@ def _fill_measure_voice(voice, events, carry_in=None):
         overflow, src_beat = carry_in
         first_event_pos = events[0][0] if events else GRID_PER_MEASURE
         tie_remaining = min(overflow, GRID_PER_MEASURE, first_event_pos)
-        while tie_remaining > 0:
-            for size in [64, 32, 16, 8, 4, 2, 1]:
+        # Round to quantized boundary
+        tie_remaining = _quantize_dur(tie_remaining) if tie_remaining >= QUANTIZE else 0
+        tie_remaining = min(tie_remaining, first_event_pos)
+        while tie_remaining >= QUANTIZE:
+            for size in VALID_SIZES:
                 if size <= tie_remaining:
                     tie_beat = _make_tie_beat(
                         voice, GRID_TO_GP[size], src_beat)
@@ -142,6 +164,8 @@ def _fill_measure_voice(voice, events, carry_in=None):
                     cursor += size
                     tie_remaining -= size
                     break
+            else:
+                break
 
     for grid_pos, grid_dur, build_beat in events:
         grid_pos = max(grid_pos, cursor)
@@ -180,20 +204,26 @@ def _fill_measure_voice(voice, events, carry_in=None):
 
 
 def _time_to_grid(time_sec, bpm, measure_start_sec):
-    """Convert an absolute time to a grid position within a measure.
+    """Convert an absolute time to a quantized grid position within a measure.
 
-    Returns grid position (0-31) clamped to measure boundaries.
+    Snaps to nearest 16th-note boundary (QUANTIZE grid units).
     """
     sec_per_grid = 60.0 / bpm / GRID_PER_BEAT
     offset = time_sec - measure_start_sec
     grid_pos = round(offset / sec_per_grid)
-    return max(0, min(grid_pos, GRID_PER_MEASURE - 1))
+    # Snap to quantized boundary
+    grid_pos = _quantize_pos(grid_pos)
+    return max(0, min(grid_pos, GRID_PER_MEASURE - QUANTIZE))
 
 
 def _dur_to_grid(dur_sec, bpm):
-    """Convert a duration in seconds to grid units."""
+    """Convert a duration in seconds to quantized grid units.
+
+    Snaps to nearest 16th-note duration (minimum QUANTIZE units).
+    """
     sec_per_grid = 60.0 / bpm / GRID_PER_BEAT
-    return max(1, round(dur_sec / sec_per_grid))
+    raw = round(dur_sec / sec_per_grid)
+    return _quantize_dur(raw)
 
 
 def _make_note_beat_builder(note_data_list):

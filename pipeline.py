@@ -121,6 +121,8 @@ def run_pipeline(filepath, optimize=True, verbose=True):
         print("[6/7] Exporting Guitar Pro...", end=" ", flush=True)
     gp_path = os.path.splitext(filepath)[0] + ".gp5"
     title = os.path.splitext(os.path.basename(filepath))[0]
+    # GP5 uses cp1252 encoding — strip incompatible characters
+    title = title.encode("cp1252", errors="replace").decode("cp1252")
     write_guitarpro(
         fretted, articulations, bpm, key, chords,
         title=title, output_path=gp_path,
