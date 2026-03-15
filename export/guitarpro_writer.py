@@ -27,17 +27,20 @@ GRID_PER_MEASURE = 64  # 4 beats * 16
 # miss anything; quantization rounds to the musical grid.
 QUANTIZE = 4  # grid units per 16th note
 
-# Grid units -> GP Duration.value (only 16th and larger after quantize)
-GRID_TO_GP = {
-    64: 1,   # whole
-    32: 2,   # half
-    16: 4,   # quarter
-    8:  8,   # eighth
-    4:  16,  # sixteenth
-}
-
-# Valid duration sizes for quantized output (descending)
-VALID_SIZES = [64, 32, 16, 8, 4]
+# Duration table: (grid_units, gp_value, isDotted)
+# Includes dotted notes for natural rhythmic values (e.g. dotted quarter
+# = quarter + eighth = 1.5 beats). Descending by grid size.
+DURATION_TABLE = [
+    (64, 1,  False),  # whole
+    (48, 2,  True),   # dotted half
+    (32, 2,  False),  # half
+    (24, 4,  True),   # dotted quarter
+    (16, 4,  False),  # quarter
+    (12, 8,  True),   # dotted eighth
+    (8,  8,  False),  # eighth
+    (6,  16, True),   # dotted sixteenth
+    (4,  16, False),  # sixteenth
+]
 
 # Chord voicings as (string, fret) lists — open position shapes
 # String numbering: 1=high E, 2=B, 3=G, 4=D, 5=A, 6=low E
@@ -83,91 +86,87 @@ def _quantize_pos(grid_pos):
 
 
 def _quantize_dur(grid_units):
-    """Snap a duration to the nearest quantized value (min 1 quantum)."""
-    return max(QUANTIZE, round(grid_units / QUANTIZE) * QUANTIZE)
+    """Snap a duration DOWN to the nearest quantized value.
 
-
-def _snap_grid_dur(grid_units):
-    """Snap a duration in grid units to the nearest valid GP duration.
-
-    Returns (gp_value, actual_grid_units) — the GP Duration.value and
-    how many grid slots it actually consumes.
+    Floors instead of rounding so notes never bleed past the next onset.
     """
-    for size in VALID_SIZES:
-        if grid_units >= size:
-            return GRID_TO_GP[size], size
-    return GRID_TO_GP[QUANTIZE], QUANTIZE  # sixteenth note minimum
+    return max(QUANTIZE, (grid_units // QUANTIZE) * QUANTIZE)
+
+
+def _make_duration(grid_units):
+    """Create a guitarpro.Duration for the given grid units.
+
+    Finds the best match from DURATION_TABLE (largest that fits),
+    including dotted notes.
+
+    Returns (guitarpro.Duration, actual_grid_units).
+    """
+    for size, gp_value, dotted in DURATION_TABLE:
+        if size <= grid_units:
+            return guitarpro.Duration(value=gp_value, isDotted=dotted), size
+    # Minimum: sixteenth
+    return guitarpro.Duration(value=16), QUANTIZE
 
 
 def _add_rests(voice, grid_units):
     """Fill a gap with rest beats using the largest durations that fit."""
     remaining = grid_units
-    while remaining > 0:
-        for size in VALID_SIZES:
-            if size <= remaining:
-                beat = guitarpro.Beat(
-                    voice, status=guitarpro.BeatStatus.rest)
-                beat.duration = guitarpro.Duration(value=GRID_TO_GP[size])
-                voice.beats.append(beat)
-                remaining -= size
-                break
-        else:
-            break  # safety: no valid size fits
+    while remaining >= QUANTIZE:
+        dur, size = _make_duration(remaining)
+        beat = guitarpro.Beat(voice, status=guitarpro.BeatStatus.rest)
+        beat.duration = dur
+        voice.beats.append(beat)
+        remaining -= size
 
 
-def _make_tie_beat(voice, gp_dur_value, source_beat):
-    """Create a tied beat that continues notes from a previous beat."""
-    beat = guitarpro.Beat(voice, status=guitarpro.BeatStatus.normal)
-    beat.duration = guitarpro.Duration(value=gp_dur_value)
-    for src_note in source_beat.notes:
-        note = guitarpro.Note(beat)
-        note.value = src_note.value
-        note.string = src_note.string
-        note.velocity = src_note.velocity
-        note.type = guitarpro.NoteType.tie
-        beat.notes.append(note)
-    return beat
+def _add_ties(voice, grid_units, source_beat):
+    """Fill a duration with tied beats using the largest values that fit."""
+    remaining = grid_units
+    while remaining >= QUANTIZE:
+        dur, size = _make_duration(remaining)
+        beat = guitarpro.Beat(voice, status=guitarpro.BeatStatus.normal)
+        beat.duration = dur
+        for src_note in source_beat.notes:
+            note = guitarpro.Note(beat)
+            note.value = src_note.value
+            note.string = src_note.string
+            note.velocity = src_note.velocity
+            note.type = guitarpro.NoteType.tie
+            beat.notes.append(note)
+        voice.beats.append(beat)
+        remaining -= size
 
 
 def _fill_measure_voice(voice, events, carry_in=None):
     """Fill a measure's voice with properly timed beats and rests.
 
+    Notes never overlap: each note's duration is capped at the gap to
+    the next note onset. When a new note plays, the old one stops.
+
     Args:
         voice: guitarpro.Voice to populate
         events: list of (grid_pos, grid_dur, beat_builder_fn)
         carry_in: (overflow_grid_units, source_beat) from previous measure
-            — tied notes that ring across the bar line
 
     Returns:
         carry_out: (overflow_grid_units, source_beat) or None
-            — if the last note rings past this measure's end
     """
     cursor = 0
     events.sort(key=lambda x: x[0])
     carry_out = None
 
-    # Handle tied notes from previous measure — chain multiple tied
-    # beats to fill the full overflow duration
+    # Handle tied notes from previous measure
     if carry_in is not None:
         overflow, src_beat = carry_in
         first_event_pos = events[0][0] if events else GRID_PER_MEASURE
-        tie_remaining = min(overflow, GRID_PER_MEASURE, first_event_pos)
-        # Round to quantized boundary
-        tie_remaining = _quantize_dur(tie_remaining) if tie_remaining >= QUANTIZE else 0
-        tie_remaining = min(tie_remaining, first_event_pos)
-        while tie_remaining >= QUANTIZE:
-            for size in VALID_SIZES:
-                if size <= tie_remaining:
-                    tie_beat = _make_tie_beat(
-                        voice, GRID_TO_GP[size], src_beat)
-                    voice.beats.append(tie_beat)
-                    cursor += size
-                    tie_remaining -= size
-                    break
-            else:
-                break
+        tie_dur = min(overflow, GRID_PER_MEASURE, first_event_pos)
+        tie_dur = _quantize_dur(tie_dur) if tie_dur >= QUANTIZE else 0
+        tie_dur = min(tie_dur, first_event_pos)
+        if tie_dur >= QUANTIZE:
+            _add_ties(voice, tie_dur, src_beat)
+            cursor = tie_dur
 
-    for grid_pos, grid_dur, build_beat in events:
+    for i, (grid_pos, grid_dur, build_beat) in enumerate(events):
         grid_pos = max(grid_pos, cursor)
         if grid_pos >= GRID_PER_MEASURE:
             break
@@ -177,21 +176,26 @@ def _fill_measure_voice(voice, events, carry_in=None):
             _add_rests(voice, grid_pos - cursor)
             cursor = grid_pos
 
+        # Cap duration: note stops when the next note starts (no overlap)
+        if i + 1 < len(events):
+            next_pos = max(events[i + 1][0], grid_pos + QUANTIZE)
+            grid_dur = min(grid_dur, next_pos - grid_pos)
+
         remaining_in_measure = GRID_PER_MEASURE - cursor
-        if remaining_in_measure <= 0:
+        if remaining_in_measure < QUANTIZE:
             break
 
         if grid_dur <= remaining_in_measure:
-            # Note fits entirely in this measure
-            gp_value, actual_dur = _snap_grid_dur(grid_dur)
-            beat = build_beat(voice, gp_value)
+            dur, actual_dur = _make_duration(grid_dur)
+            beat = build_beat(voice, dur.value)
+            beat.duration = dur  # override with possibly dotted duration
             voice.beats.append(beat)
             cursor += actual_dur
         else:
-            # Note overflows into next measure — place what fits here,
-            # return the overflow for the next measure as a tie
-            gp_value, actual_dur = _snap_grid_dur(remaining_in_measure)
-            beat = build_beat(voice, gp_value)
+            # Note overflows into next measure
+            dur, actual_dur = _make_duration(remaining_in_measure)
+            beat = build_beat(voice, dur.value)
+            beat.duration = dur
             voice.beats.append(beat)
             carry_out = (grid_dur - actual_dur, beat)
             cursor += actual_dur
