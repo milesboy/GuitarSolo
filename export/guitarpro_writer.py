@@ -134,14 +134,23 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
         cursor = 0
 
         # Carry-in: tied notes from previous measure
+        # Range-aware: find the LATEST first-onset across all carried
+        # ranges, so notes ring for the longest sustain. If carry has
+        # bass+melody, and bass starts at slot 4 but melody at slot 8,
+        # the tie extends to slot 8 (all notes ring together in GP).
         if carry is not None:
-            overflow, src_beat = carry
+            overflow, src_beat, carry_ranges = carry
             carry = None
-            first_slot = SLOTS_PER_MEASURE
-            if onsets:
-                first_slot = round((onsets[0] - m_start) / sec_per_16th)
-                first_slot = max(0, min(first_slot, SLOTS_PER_MEASURE))
-            tie_slots = min(overflow, first_slot)
+            latest_first = 0
+            for rng in carry_ranges:
+                first_for_range = SLOTS_PER_MEASURE
+                for onset in onsets:
+                    if rng in onset_ranges.get(onset, set()):
+                        s = round((onset - m_start) / sec_per_16th)
+                        first_for_range = max(0, min(s, SLOTS_PER_MEASURE))
+                        break
+                latest_first = max(latest_first, first_for_range)
+            tie_slots = min(overflow, latest_first)
             if tie_slots > 0:
                 _add_ties(voice, tie_slots, src_beat)
                 cursor = tie_slots
@@ -166,32 +175,50 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
                 _add_rests(voice, slot - cursor)
                 cursor = slot
 
-            # Compute ring duration (range-aware)
+            # Compute ring duration (range-aware).
+            # For groups with bass+melody, find the gap for EACH range
+            # independently and use the LONGEST one — so melody rings
+            # past bass onsets and vice versa.
             group = note_groups[onset]
             sustain = max(nd[4] for nd, _ in group)
             my_ranges = onset_ranges[onset]
-            gap = None
             idx = sorted_onsets.index(onset)
-            for fi in range(idx + 1, len(sorted_onsets)):
-                if my_ranges & onset_ranges[sorted_onsets[fi]]:
-                    gap = sorted_onsets[fi] - onset
+
+            longest_gap = 0.0
+            for rng in my_ranges:
+                gap_for_range = None
+                for fi in range(idx + 1, len(sorted_onsets)):
+                    if rng in onset_ranges[sorted_onsets[fi]]:
+                        gap_for_range = sorted_onsets[fi] - onset
+                        break
+                if gap_for_range is not None:
+                    longest_gap = max(longest_gap, gap_for_range)
+                else:
+                    longest_gap = sustain  # no future onset in this range
                     break
-            ring_sec = min(sustain, gap) if gap else sustain
+
+            ring_sec = min(sustain, longest_gap) if longest_gap > 0 else sustain
             ring_slots = max(1, round(ring_sec / sec_per_16th))
 
             remaining = SLOTS_PER_MEASURE - cursor
 
-            # Cap at next note in this measure IN THE SAME RANGE.
-            # Bass notes ring past melody onsets, melody rings past bass.
+            # Cap at next note in this measure that shares a range.
+            # For groups with both bass+melody, find the LATEST
+            # first-onset across ranges so notes ring as long as
+            # the longest-sustaining range.
             avail = ring_slots
             if j + 1 < len(onsets):
-                for k in range(j + 1, len(onsets)):
-                    future_ranges = onset_ranges[onsets[k]]
-                    if my_ranges & future_ranges:  # same range
-                        next_slot = round((onsets[k] - m_start) / sec_per_16th)
-                        next_slot = max(0, min(next_slot, SLOTS_PER_MEASURE))
-                        avail = min(avail, next_slot - cursor)
-                        break
+                latest_cap = 0
+                for rng in my_ranges:
+                    cap_for_range = SLOTS_PER_MEASURE
+                    for k in range(j + 1, len(onsets)):
+                        if rng in onset_ranges.get(onsets[k], set()):
+                            ns = round((onsets[k] - m_start) / sec_per_16th)
+                            cap_for_range = max(0, min(ns, SLOTS_PER_MEASURE))
+                            break
+                    latest_cap = max(latest_cap, cap_for_range)
+                if latest_cap > cursor:
+                    avail = min(avail, latest_cap - cursor)
             avail = max(avail, 1)
 
             note_dur = _snap_down(min(avail, remaining))
@@ -220,7 +247,7 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
 
             # Carry tie if last note in measure and sustain overflows
             if j + 1 >= len(onsets) and ring_slots > remaining:
-                carry = (ring_slots - remaining, beat)
+                carry = (ring_slots - remaining, beat, my_ranges)
 
         # Fill remainder of measure
         if cursor < SLOTS_PER_MEASURE:

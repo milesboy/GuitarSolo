@@ -10,8 +10,8 @@ import librosa
 
 from config import GUITAR_STRINGS
 
-# Default max fret — full guitar range
-DEFAULT_MAX_FRET = 22
+# Default max fret — open position playing (covers most fingerstyle)
+DEFAULT_MAX_FRET = 7
 
 # Natural harmonic touch positions: maps MIDI note -> (string_idx, touch_fret)
 # These are notes that can only be played as harmonics, not fretted
