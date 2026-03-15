@@ -11,6 +11,15 @@ downloads/
 # FFmpeg binary
 .ffmpeg/
 
+# FluidSynth binary
+.fluidsynth/
+
+# Aubio binary
+.aubio/
+
+# Soundfonts (too large for git)
+soundfonts/*.sf2
+
 # Sensitive files
 cookies.txt
 
