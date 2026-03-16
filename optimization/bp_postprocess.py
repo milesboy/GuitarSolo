@@ -208,6 +208,48 @@ def cap_durations(notes):
     return capped, fixes
 
 
+def remove_sustain_duplicates(notes):
+    """Remove notes that are sustain energy misread as re-plucks.
+
+    If the same pitch appears again while the previous note is still
+    ringing AND the new one is quieter (or similar velocity), it's
+    sustain leakage, not a real new pluck. A real re-pluck would be
+    at least as loud as the decaying note.
+
+    This fixes the "sustain interpreted as new notes" problem.
+    """
+    if not notes:
+        return notes, 0
+
+    sorted_notes = sorted(notes, key=lambda n: n[0])
+    kept = []
+    removed = 0
+
+    # Track ringing notes: pitch -> (end_time, velocity)
+    ringing = {}
+
+    for t, name, freq, vel, dur in sorted_notes:
+        clean = name.replace("\u266f", "#").replace("\u266d", "b")
+
+        # Is this pitch currently ringing from a previous note?
+        if clean in ringing:
+            prev_end, prev_vel = ringing[clean]
+            if t < prev_end:
+                # Previous note is still ringing at this time.
+                # Real re-pluck: new note should be at least 70% of
+                # the original velocity (a fresh pluck has energy).
+                # Sustain leakage: quieter, just the tail of the old note.
+                if vel < prev_vel * 0.70:
+                    removed += 1
+                    continue  # skip — it's sustain, not a re-pluck
+
+        # Keep this note and track its ringing
+        kept.append((t, name, freq, vel, dur))
+        ringing[clean] = (t + dur, vel)
+
+    return kept, removed
+
+
 def postprocess_bp(notes, y=None, sr=None, verbose=True):
     """Full post-processing pipeline for Basic Pitch output."""
     if verbose:
@@ -224,7 +266,12 @@ def postprocess_bp(notes, y=None, sr=None, verbose=True):
     if verbose:
         print(f"  Octave fixes: {octave_fixes}")
 
-    # Step 3: Filter and merge
+    # Step 3: Remove sustain duplicates
+    notes, sustain_removed = remove_sustain_duplicates(notes)
+    if verbose:
+        print(f"  Sustain duplicates removed: {sustain_removed}")
+
+    # Step 4: Filter and merge
     notes, filter_removed = filter_and_merge(notes)
     if verbose:
         print(f"  Filtered/merged: {filter_removed}")
