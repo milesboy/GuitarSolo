@@ -1,0 +1,91 @@
+{
+  "timestamp": "2026-03-16T07:47:54.446605",
+  "engine": "basic-pitch 0.4.0 (ONNX)",
+  "tracks": [
+    {
+      "track_id": "00_BN1-129-Eb_solo",
+      "style": "Bossa Nova",
+      "tempo": 129.0,
+      "gt_notes": 71,
+      "pred_notes": 95,
+      "onset_f1": 0.759,
+      "onset_precision": 0.663,
+      "onset_recall": 0.887,
+      "onset_pitch_f1": 0.072,
+      "onset_pitch_precision": 0.063,
+      "onset_pitch_recall": 0.085,
+      "full_f1": 0.048,
+      "full_precision": 0.042,
+      "full_recall": 0.056
+    },
+    {
+      "track_id": "00_Funk1-114-Ab_solo",
+      "style": "Funk",
+      "tempo": 114.0,
+      "gt_notes": 58,
+      "pred_notes": 70,
+      "onset_f1": 0.734,
+      "onset_precision": 0.671,
+      "onset_recall": 0.81,
+      "onset_pitch_f1": 0.062,
+      "onset_pitch_precision": 0.057,
+      "onset_pitch_recall": 0.069,
+      "full_f1": 0.031,
+      "full_precision": 0.029,
+      "full_recall": 0.034
+    },
+    {
+      "track_id": "00_Jazz1-130-D_solo",
+      "style": "Jazz",
+      "tempo": 130.0,
+      "gt_notes": 57,
+      "pred_notes": 97,
+      "onset_f1": 0.727,
+      "onset_precision": 0.577,
+      "onset_recall": 0.982,
+      "onset_pitch_f1": 0.156,
+      "onset_pitch_precision": 0.124,
+      "onset_pitch_recall": 0.211,
+      "full_f1": 0.143,
+      "full_precision": 0.113,
+      "full_recall": 0.193
+    },
+    {
+      "track_id": "00_Rock1-130-A_solo",
+      "style": "Rock",
+      "tempo": 130.0,
+      "gt_notes": 88,
+      "pred_notes": 115,
+      "onset_f1": 0.739,
+      "onset_precision": 0.652,
+      "onset_recall": 0.852,
+      "onset_pitch_f1": 0.01,
+      "onset_pitch_precision": 0.009,
+      "onset_pitch_recall": 0.011,
+      "full_f1": 0.01,
+      "full_precision": 0.009,
+      "full_recall": 0.011
+    },
+    {
+      "track_id": "00_SS1-100-C#_solo",
+      "style": "Singer-Songwriter",
+      "tempo": 100.0,
+      "gt_notes": 64,
+      "pred_notes": 87,
+      "onset_f1": 0.768,
+      "onset_precision": 0.667,
+      "onset_recall": 0.906,
+      "onset_pitch_f1": 0.066,
+      "onset_pitch_precision": 0.057,
+      "onset_pitch_recall": 0.078,
+      "full_f1": 0.053,
+      "full_precision": 0.046,
+      "full_recall": 0.062
+    }
+  ],
+  "summary": {
+    "avg_onset_f1": 0.745,
+    "avg_onset_pitch_f1": 0.073,
+    "avg_full_f1": 0.057
+  }
+}

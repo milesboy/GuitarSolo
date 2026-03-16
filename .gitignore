@@ -28,3 +28,10 @@ cookies.txt
 
 # MIDI output (generated)
 *.mid
+
+# Datasets (too large for git)
+data/
+
+# Evaluation output (except the log)
+output/midi/
+output/gp5/
