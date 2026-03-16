@@ -1,7 +1,5 @@
 {
-  "timestamp": "2026-03-16T07:47:54.446605",
-  "engine": "basic-pitch 0.4.0 (ONNX)",
-  "tracks": [
+  "basic_pitch_raw": [
     {
       "track_id": "00_BN1-129-Eb_solo",
       "style": "Bossa Nova",
@@ -83,9 +81,155 @@
       "full_recall": 0.062
     }
   ],
-  "summary": {
-    "avg_onset_f1": 0.745,
-    "avg_onset_pitch_f1": 0.073,
-    "avg_full_f1": 0.057
-  }
+  "basic_pitch_octave_shift": [
+    {
+      "onset_f1": 0.0,
+      "onset_pitch_f1": 0.0,
+      "onset_pitch_p": 0.0,
+      "onset_pitch_r": 0.0,
+      "full_f1": 0.0,
+      "track_id": "00_BN1-129-Eb_solo",
+      "style": "Bossa Nova"
+    },
+    {
+      "onset_f1": 0.0,
+      "onset_pitch_f1": 0.0,
+      "onset_pitch_p": 0.0,
+      "onset_pitch_r": 0.0,
+      "full_f1": 0.0,
+      "track_id": "00_Funk1-114-Ab_solo",
+      "style": "Funk"
+    },
+    {
+      "onset_f1": 0.0,
+      "onset_pitch_f1": 0.0,
+      "onset_pitch_p": 0.0,
+      "onset_pitch_r": 0.0,
+      "full_f1": 0.0,
+      "track_id": "00_Jazz1-130-D_solo",
+      "style": "Jazz"
+    },
+    {
+      "onset_f1": 0.0,
+      "onset_pitch_f1": 0.0,
+      "onset_pitch_p": 0.0,
+      "onset_pitch_r": 0.0,
+      "full_f1": 0.0,
+      "track_id": "00_Rock1-130-A_solo",
+      "style": "Rock"
+    },
+    {
+      "onset_f1": 0.0,
+      "onset_pitch_f1": 0.0,
+      "onset_pitch_p": 0.0,
+      "onset_pitch_r": 0.0,
+      "full_f1": 0.0,
+      "track_id": "00_SS1-100-C#_solo",
+      "style": "Singer-Songwriter"
+    }
+  ],
+  "our_cqt_detector": [
+    {
+      "onset_f1": 0.0,
+      "onset_pitch_f1": 0.0,
+      "onset_pitch_p": 0.0,
+      "onset_pitch_r": 0.0,
+      "full_f1": 0.0,
+      "track_id": "00_BN1-129-Eb_solo",
+      "style": "Bossa Nova",
+      "pred_notes": 166
+    },
+    {
+      "onset_f1": 0.0,
+      "onset_pitch_f1": 0.0,
+      "onset_pitch_p": 0.0,
+      "onset_pitch_r": 0.0,
+      "full_f1": 0.0,
+      "track_id": "00_Funk1-114-Ab_solo",
+      "style": "Funk",
+      "pred_notes": 163
+    },
+    {
+      "onset_f1": 0.0,
+      "onset_pitch_f1": 0.0,
+      "onset_pitch_p": 0.0,
+      "onset_pitch_r": 0.0,
+      "full_f1": 0.0,
+      "track_id": "00_Jazz1-130-D_solo",
+      "style": "Jazz",
+      "pred_notes": 193
+    },
+    {
+      "onset_f1": 0.0,
+      "onset_pitch_f1": 0.0,
+      "onset_pitch_p": 0.0,
+      "onset_pitch_r": 0.0,
+      "full_f1": 0.0,
+      "track_id": "00_Rock1-130-A_solo",
+      "style": "Rock",
+      "pred_notes": 330
+    },
+    {
+      "onset_f1": 0.0,
+      "onset_pitch_f1": 0.0,
+      "onset_pitch_p": 0.0,
+      "onset_pitch_r": 0.0,
+      "full_f1": 0.0,
+      "track_id": "00_SS1-100-C#_solo",
+      "style": "Singer-Songwriter",
+      "pred_notes": 179
+    }
+  ],
+  "hybrid_bp_onset_cqt_pitch": [
+    {
+      "onset_f1": 0.0,
+      "onset_pitch_f1": 0.0,
+      "onset_pitch_p": 0.0,
+      "onset_pitch_r": 0.0,
+      "full_f1": 0.0,
+      "track_id": "00_BN1-129-Eb_solo",
+      "style": "Bossa Nova",
+      "pred_notes": 283
+    },
+    {
+      "onset_f1": 0.0,
+      "onset_pitch_f1": 0.0,
+      "onset_pitch_p": 0.0,
+      "onset_pitch_r": 0.0,
+      "full_f1": 0.0,
+      "track_id": "00_Funk1-114-Ab_solo",
+      "style": "Funk",
+      "pred_notes": 188
+    },
+    {
+      "onset_f1": 0.0,
+      "onset_pitch_f1": 0.0,
+      "onset_pitch_p": 0.0,
+      "onset_pitch_r": 0.0,
+      "full_f1": 0.0,
+      "track_id": "00_Jazz1-130-D_solo",
+      "style": "Jazz",
+      "pred_notes": 250
+    },
+    {
+      "onset_f1": 0.0,
+      "onset_pitch_f1": 0.0,
+      "onset_pitch_p": 0.0,
+      "onset_pitch_r": 0.0,
+      "full_f1": 0.0,
+      "track_id": "00_Rock1-130-A_solo",
+      "style": "Rock",
+      "pred_notes": 396
+    },
+    {
+      "onset_f1": 0.0,
+      "onset_pitch_f1": 0.0,
+      "onset_pitch_p": 0.0,
+      "onset_pitch_r": 0.0,
+      "full_f1": 0.0,
+      "track_id": "00_SS1-100-C#_solo",
+      "style": "Singer-Songwriter",
+      "pred_notes": 222
+    }
+  ]
 }
