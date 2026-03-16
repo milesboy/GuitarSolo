@@ -85,12 +85,29 @@ def add_missing_notes(notes, missing_list, y, sr, tolerance=0.3,
         except Exception:
             pass
 
-    for missing in missing_list:
-        if missing['deficit_db'] < min_deficit_db:
-            continue
+    GUITAR_MIDI_LOW = 40   # E2 — lowest guitar note
+    GUITAR_MIDI_HIGH = 88  # E6 — highest harmonic
+    BASS_MIDI_MAX = 55     # G3 — bass range ceiling
 
+    for missing in missing_list:
         t = missing['time']
         midi = missing['midi']
+
+        # Hard floor: nothing below guitar range
+        if midi < GUITAR_MIDI_LOW or midi > GUITAR_MIDI_HIGH:
+            continue
+
+        # Bass notes need a higher deficit threshold — low frequencies
+        # have more CQT energy from room tone and string resonance,
+        # causing false "missing" detections
+        if midi <= BASS_MIDI_MAX:
+            required_db = min_deficit_db + 15.0  # 60dB for bass
+        else:
+            required_db = min_deficit_db
+
+        if missing['deficit_db'] < required_db:
+            continue
+
         key = (round(t / tolerance), midi)
         if key in existing:
             continue
