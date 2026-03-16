@@ -8,7 +8,7 @@ import librosa
 from basic_pitch.inference import predict
 
 
-def detect_notes_bp(filepath, min_note_length_ms=50, min_frequency=None,
+def detect_notes_bp(filepath, min_note_length_ms=None, min_frequency=None,
                     max_frequency=None, onset_threshold=0.5,
                     frame_threshold=0.3):
     """Detect notes using Basic Pitch.
@@ -23,14 +23,17 @@ def detect_notes_bp(filepath, min_note_length_ms=50, min_frequency=None,
         list of (time, note_name, freq_hz, velocity, duration)
         Same format as librosa_detector.detect_notes()
     """
-    model_output, midi_data, note_events = predict(
-        filepath,
+    kwargs = dict(
         onset_threshold=onset_threshold,
         frame_threshold=frame_threshold,
-        minimum_note_length=min_note_length_ms / 1000.0,
         minimum_frequency=min_frequency,
         maximum_frequency=max_frequency,
     )
+    if min_note_length_ms is not None:
+        kwargs['minimum_note_length'] = min_note_length_ms / 1000.0
+    # else: use BP default (~128ms), which filters spurious short notes
+
+    model_output, midi_data, note_events = predict(filepath, **kwargs)
 
     notes = []
     for event in note_events:
