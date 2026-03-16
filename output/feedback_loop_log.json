@@ -1,0 +1,52 @@
+[
+  {
+    "iteration": 1,
+    "notes_before": 728,
+    "similarity": 0.923,
+    "n_extra": 321,
+    "n_missing": 845,
+    "removed": 1,
+    "added": 439,
+    "notes_after": 1166
+  },
+  {
+    "iteration": 2,
+    "notes_before": 1166,
+    "similarity": 0.978,
+    "n_extra": 1129,
+    "n_missing": 63,
+    "removed": 12,
+    "added": 7,
+    "notes_after": 1161
+  },
+  {
+    "iteration": 3,
+    "notes_before": 1161,
+    "similarity": 0.979,
+    "n_extra": 1146,
+    "n_missing": 41,
+    "removed": 1,
+    "added": 2,
+    "notes_after": 1162
+  },
+  {
+    "iteration": 4,
+    "notes_before": 1162,
+    "similarity": 0.979,
+    "n_extra": 1227,
+    "n_missing": 37,
+    "removed": 0,
+    "added": 2,
+    "notes_after": 1164
+  },
+  {
+    "iteration": 5,
+    "notes_before": 1164,
+    "similarity": 0.978,
+    "n_extra": 1163,
+    "n_missing": 38,
+    "removed": 0,
+    "added": 1,
+    "notes_after": 1165
+  }
+]
