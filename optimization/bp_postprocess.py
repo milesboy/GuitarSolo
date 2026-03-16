@@ -272,7 +272,7 @@ def suppress_under_sustain(notes):
     kept = []
     removed = 0
 
-    # Track ringing notes: list of (end_time, midi, velocity)
+    # Track ringing notes: list of (onset_time, end_time, midi, velocity)
     ringing = []
 
     for t, name, freq, vel, dur in sorted_notes:
@@ -284,20 +284,25 @@ def suppress_under_sustain(notes):
             continue
 
         # Expire old ringing notes
-        ringing = [(end, m, v) for end, m, v in ringing if end > t]
+        ringing = [(ot, end, m, v) for ot, end, m, v in ringing if end > t]
 
         # Check: is this note lower than any currently ringing note
         # AND quieter? If so, it's likely a harmonic/artifact.
+        # BUT: don't suppress if it started within 50ms of the higher
+        # note — they're part of the same chord/onset event.
         suppressed = False
-        for ring_end, ring_midi, ring_vel in ringing:
+        for ring_onset, ring_end, ring_midi, ring_vel in ringing:
             if midi < ring_midi and vel < ring_vel * 0.8:
+                # Same onset? (within 50ms = same chord)
+                if abs(t - ring_onset) <= 0.05:
+                    continue  # part of same event, keep it
                 suppressed = True
                 removed += 1
                 break
 
         if not suppressed:
             kept.append((t, name, freq, vel, dur))
-            ringing.append((t + dur, midi, vel))
+            ringing.append((t, t + dur, midi, vel))
 
     return kept, removed
 
