@@ -182,6 +182,31 @@ def add_missing_notes(notes, missing_list, y, sr, tolerance=0.3,
         if energy < threshold:
             continue
 
+        # Gate 4: Compare amplitude against existing notes at this time.
+        # If real notes are already playing loud and this "missing" note
+        # is much quieter, it's a harmonic of what's there, not a real
+        # independently played note.
+        concurrent_energies = []
+        for n in notes:
+            if n[0] <= t < n[0] + n[4]:  # note is active at time t
+                clean_n = n[1].replace("\u266f", "#").replace("\u266d", "b")
+                try:
+                    n_midi = librosa.note_to_midi(clean_n)
+                    n_bin = n_midi - 40
+                    if 0 <= n_bin < n_semi:
+                        n_energy = float(np.mean(
+                            cqt[n_bin, frame:min(frame+window, cqt.shape[1])]))
+                        concurrent_energies.append(n_energy)
+                except Exception:
+                    pass
+
+        if concurrent_energies:
+            max_concurrent = max(concurrent_energies)
+            # Missing note must be at least 30% of the loudest
+            # concurrent note's energy — otherwise it's a harmonic
+            if max_concurrent > 0 and energy < max_concurrent * 0.30:
+                continue
+
         # Estimate duration from CQT
         dur = 0.1
         check = frame + int(0.1 * sr / hop)
