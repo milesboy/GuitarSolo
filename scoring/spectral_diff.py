@@ -28,14 +28,18 @@ def render_midi_to_wav(midi_path, wav_path=None):
     if wav_path is None:
         wav_path = midi_path.replace('.mid', '_rendered.wav')
 
-    # Write a melody-only MIDI (strip chords track)
+    # Write a melody-only MIDI with drawbar organ (fewer harmonics
+    # than guitar = cleaner spectral comparison)
+    ORGAN_PROGRAM = 16  # GM Drawbar Organ
     mid = pretty_midi.PrettyMIDI(midi_path)
     melody_only = pretty_midi.PrettyMIDI(initial_tempo=mid.estimate_tempo())
     for inst in mid.instruments:
         if inst.name == "Melody" or len(mid.instruments) == 1:
+            inst.program = ORGAN_PROGRAM  # switch to organ
             melody_only.instruments.append(inst)
             break
     if not melody_only.instruments and mid.instruments:
+        mid.instruments[0].program = ORGAN_PROGRAM
         melody_only.instruments.append(mid.instruments[0])
 
     tmp_midi = midi_path.replace('.mid', '_melody_only.mid')
