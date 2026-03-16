@@ -286,11 +286,12 @@ def postprocess_bp(notes, y=None, sr=None, verbose=True, verify_pitch=True):
     if verbose:
         print(f"  Filtered/merged: {filter_removed}")
 
-    # Step 5: CQT pitch voting — verify each note's pitch with
-    # multiple CQT snapshots during its active period
-    if verify_pitch and y is not None and sr is not None:
-        from detection.pitch_voter import verify_notes
-        notes, pitch_fixes = verify_notes(notes, y, sr, verbose=verbose)
+    # Step 5: CQT pitch voting disabled — CQT peaks are unreliable for
+    # pitch verification (harmonics and spectral leakage cause wrong
+    # corrections). BP pitch accuracy drops 0.737 → 0.535 with voting.
+    # BP's neural network is better at pitch than CQT peak picking.
+    # TODO: revisit with a smarter voting approach (dB-normalized,
+    # harmonic-aware peak selection)
 
     if verbose:
         print(f"  Output: {len(notes)} notes")
