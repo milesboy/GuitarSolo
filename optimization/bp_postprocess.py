@@ -1,35 +1,97 @@
 """Post-processor for Basic Pitch output.
 
-Applies guitar-specific corrections to improve transcription accuracy:
-1. Octave correction — snap notes to guitar range
-2. False positive filtering — remove notes outside guitar range, merge duplicates
-3. Duration improvement — use CQT sustain measurement for better durations
+Applies guitar-specific corrections:
+1. Harmonic suppression — remove overtones that BP detects as separate notes
+2. Octave correction — snap notes to guitar range
+3. False positive filtering — velocity, duration, merge duplicates
+4. Duration extension — let notes ring to next onset (guitar sustains naturally)
 """
 import librosa
 import numpy as np
 
-# Guitar range: E2 (MIDI 40) to E6 (MIDI 88, highest harmonic)
 GUITAR_MIDI_LOW = 40   # E2
 GUITAR_MIDI_HIGH = 88  # E6
-# Practical fretted range (no harmonics)
-GUITAR_FRETTED_HIGH = 84  # C6 (24th fret on high E)
+
+# Harmonic intervals (semitones) — same as our CQT detector
+HARM_INTERVALS = {12, 19, 24, 28, 31, 34, 36}
+
+
+def suppress_harmonics(notes, mag_ratio=2.0):
+    """Remove notes that are harmonics of louder simultaneous notes.
+
+    Groups notes by onset time (within 50ms). Within each group,
+    identifies the bass note and removes higher notes that fall on
+    harmonic intervals IF they're quieter than the fundamental.
+
+    This is the same logic as our CQT harmonic suppression but
+    applied to BP output.
+    """
+    # Group by onset (within 50ms)
+    groups = []
+    sorted_notes = sorted(notes, key=lambda n: n[0])
+
+    if not sorted_notes:
+        return notes, 0
+
+    current_group = [sorted_notes[0]]
+    for n in sorted_notes[1:]:
+        if n[0] - current_group[0][0] <= 0.05:
+            current_group.append(n)
+        else:
+            groups.append(current_group)
+            current_group = [n]
+    groups.append(current_group)
+
+    kept = []
+    removed = 0
+
+    for group in groups:
+        if len(group) <= 1:
+            kept.extend(group)
+            continue
+
+        # Convert to MIDI for harmonic analysis
+        group_midi = []
+        for n in group:
+            clean = n[1].replace("\u266f", "#").replace("\u266d", "b")
+            try:
+                midi = librosa.note_to_midi(clean)
+            except Exception:
+                midi = 0
+            group_midi.append((n, midi))
+
+        # Sort by pitch (low to high)
+        group_midi.sort(key=lambda x: x[1])
+
+        # For each note, check if it's a harmonic of a lower, louder note
+        suppressed = set()
+        for i, (note_i, midi_i) in enumerate(group_midi):
+            if i in suppressed:
+                continue
+            # This note survives — suppress its harmonics
+            for j in range(i + 1, len(group_midi)):
+                if j in suppressed:
+                    continue
+                note_j, midi_j = group_midi[j]
+                interval = midi_j - midi_i
+                if interval in HARM_INTERVALS:
+                    # It's a harmonic — suppress if quieter
+                    if note_j[3] < note_i[3] * mag_ratio:
+                        suppressed.add(j)
+
+        for i, (note, midi) in enumerate(group_midi):
+            if i not in suppressed:
+                kept.append(note)
+            else:
+                removed += 1
+
+    return kept, removed
 
 
 def fix_octave_errors(notes):
-    """Snap notes to the nearest guitar-valid octave.
-
-    Basic Pitch sometimes outputs notes an octave too high or low.
-    If a note is outside guitar range, shift it by octaves until
-    it fits. If it can't fit, remove it.
-
-    Args:
-        notes: list of (time, note_name, freq, velocity, duration)
-    Returns:
-        corrected notes list
-    """
+    """Snap notes to the nearest guitar-valid octave."""
     corrected = []
-    octave_fixes = 0
-
+    fixes = 0
     for t, name, freq, vel, dur in notes:
         clean = name.replace("\u266f", "#").replace("\u266d", "b")
         try:
@@ -38,68 +100,55 @@ def fix_octave_errors(notes):
             corrected.append((t, name, freq, vel, dur))
             continue
 
-        original_midi = midi
-
-        # Shift into guitar range by octaves
+        original = midi
         while midi < GUITAR_MIDI_LOW and midi + 12 <= GUITAR_MIDI_HIGH:
             midi += 12
         while midi > GUITAR_MIDI_HIGH and midi - 12 >= GUITAR_MIDI_LOW:
             midi -= 12
 
         if GUITAR_MIDI_LOW <= midi <= GUITAR_MIDI_HIGH:
-            if midi != original_midi:
-                octave_fixes += 1
+            if midi != original:
+                fixes += 1
                 name = librosa.midi_to_note(midi)
                 freq = float(librosa.midi_to_hz(midi))
             corrected.append((t, name, freq, vel, dur))
-        # else: note is unreachable on guitar, drop it
-
-    return corrected, octave_fixes
+    return corrected, fixes
 
 
-def filter_false_positives(notes, min_velocity=0.15, min_duration=0.05,
-                           merge_window=0.03):
-    """Remove spurious notes and merge near-duplicates.
+def filter_and_merge(notes, min_velocity_pct=0.20, merge_window=0.03):
+    """Remove low-velocity notes and merge near-duplicates.
 
     Args:
-        notes: list of (time, note_name, freq, velocity, duration)
-        min_velocity: minimum velocity to keep (0-1 scale from BP)
-        min_duration: minimum duration in seconds
-        merge_window: merge same-pitch notes within this time window
-    Returns:
-        filtered notes list, count removed
+        min_velocity_pct: remove notes below this % of max velocity in song
+        merge_window: merge same-pitch notes within this time (seconds)
     """
-    # Filter by velocity and duration
+    if not notes:
+        return notes, 0
+
+    max_vel = max(n[3] for n in notes)
+    threshold = max_vel * min_velocity_pct
+    removed = 0
+
+    # Filter by velocity
     filtered = []
     for n in notes:
-        t, name, freq, vel, dur = n
-        # BP velocity is 0-127, but we stored it as int
-        # Low velocity notes are often artifacts
-        if vel < min_velocity * 127:
-            continue
-        if dur < min_duration:
-            continue
-        filtered.append(n)
+        if n[3] >= threshold:
+            filtered.append(n)
+        else:
+            removed += 1
 
-    removed = len(notes) - len(filtered)
-
-    # Merge near-duplicates: same pitch within merge_window
-    if not filtered:
-        return filtered, removed
-
-    filtered.sort(key=lambda n: (n[1], n[0]))  # sort by note name, then time
+    # Merge near-duplicates
+    filtered.sort(key=lambda n: (n[1], n[0]))
     merged = []
     i = 0
     while i < len(filtered):
         t, name, freq, vel, dur = filtered[i]
-        # Look ahead for same note within merge window
         j = i + 1
         while j < len(filtered):
-            t2, name2, freq2, vel2, dur2 = filtered[j]
+            t2, name2, _, vel2, dur2 = filtered[j]
             if name2 != name:
                 break
             if t2 - t <= merge_window:
-                # Merge: keep earlier onset, longer duration, higher velocity
                 dur = max(dur, (t2 - t) + dur2)
                 vel = max(vel, vel2)
                 removed += 1
@@ -109,130 +158,87 @@ def filter_false_positives(notes, min_velocity=0.15, min_duration=0.05,
         merged.append((t, name, freq, vel, dur))
         i = j
 
-    # Re-sort by time
     merged.sort(key=lambda n: n[0])
     return merged, removed
 
 
-def improve_durations_cqt(notes, y, sr, hop_length=512):
-    """Use CQT sustain analysis to improve Basic Pitch durations.
+def extend_durations(notes):
+    """Extend note durations to ring until the next onset in the same range.
 
-    BP durations are often too short or too long. CQT energy tracking
-    gives a more accurate picture of when each note actually stops.
+    Guitar strings ring naturally until the next pluck on the same string.
+    BP durations are often too short. Extend each note to fill the gap
+    to the next onset, respecting bass/melody independence.
 
-    Only adjusts durations — doesn't change pitch or onset time.
+    Uses the same bass/melody range split as the GP writer.
     """
-    if not notes:
-        return notes
+    BASS_MAX_MIDI = 55  # G3
 
-    y_harmonic, _ = librosa.effects.hpss(y)
-    tuning = librosa.estimate_tuning(y=y_harmonic, sr=sr)
-    fmin = librosa.note_to_hz("E2") * (2 ** (tuning / 12))
-
-    n_semi = 52
-    bins_per_semi = 3
-    cqt_raw = np.abs(librosa.cqt(
-        y=y_harmonic, sr=sr, fmin=fmin, hop_length=hop_length,
-        n_bins=n_semi * bins_per_semi, bins_per_octave=12 * bins_per_semi))
-    cqt = np.zeros((n_semi, cqt_raw.shape[1]))
-    for i in range(n_semi):
-        cqt[i] = np.max(cqt_raw[i*bins_per_semi:(i+1)*bins_per_semi], axis=0)
-
-    fmin_std = librosa.note_to_hz("E2")
-    window = max(1, int(0.1 * sr / hop_length))
-    check_interval = int(0.1 * sr / hop_length)
-    sustain_ratio = 0.20
-
-    corrected = []
-    dur_fixes = 0
-
-    for t, name, freq, vel, dur in notes:
+    def note_range(name):
         clean = name.replace("\u266f", "#").replace("\u266d", "b")
         try:
             midi = librosa.note_to_midi(clean)
+            return "bass" if midi <= BASS_MAX_MIDI else "melody"
         except Exception:
-            corrected.append((t, name, freq, vel, dur))
-            continue
+            return "melody"
 
-        note_bin = midi - 40  # E2 = MIDI 40 = bin 0
-        if note_bin < 0 or note_bin >= n_semi:
-            corrected.append((t, name, freq, vel, dur))
-            continue
+    if not notes:
+        return notes, 0
 
-        # Measure actual sustain from CQT
-        onset_frame = librosa.time_to_frames(t, sr=sr, hop_length=hop_length)
-        end_frame = min(onset_frame + window, cqt.shape[1])
-        if onset_frame >= cqt.shape[1]:
-            corrected.append((t, name, freq, vel, dur))
-            continue
+    sorted_notes = sorted(notes, key=lambda n: n[0])
+    extended = []
+    fixes = 0
 
-        onset_mag = float(np.mean(cqt[note_bin, onset_frame:end_frame]))
-        if onset_mag <= 0:
-            corrected.append((t, name, freq, vel, dur))
-            continue
+    for i, (t, name, freq, vel, dur) in enumerate(sorted_notes):
+        rng = note_range(name)
 
-        # Scan forward
-        actual_dur = 0.1
-        check_frame = onset_frame + check_interval
-        while check_frame < cqt.shape[1]:
-            c_end = min(check_frame + window, cqt.shape[1])
-            energy = float(np.mean(cqt[note_bin, check_frame:c_end]))
-            if energy < onset_mag * sustain_ratio:
-                break
-            actual_dur += 0.1
-            check_frame += check_interval
-            if actual_dur > 4.0:
+        # Find next onset in same range
+        next_onset = None
+        for j in range(i + 1, len(sorted_notes)):
+            future_rng = note_range(sorted_notes[j][1])
+            if future_rng == rng or (rng == "bass" and future_rng == "bass") or \
+               (rng == "melody" and future_rng == "melody"):
+                next_onset = sorted_notes[j][0]
                 break
 
-        # Only correct if significantly different (>40% off)
-        if dur > 0 and abs(actual_dur - dur) / dur > 0.4:
-            # Blend: trust BP for short notes, CQT for long sustains
-            if actual_dur > dur:
-                # CQT says longer — extend (BP often cuts short)
-                new_dur = actual_dur
-            else:
-                # CQT says shorter — use average (BP sometimes too long)
-                new_dur = (dur + actual_dur) / 2
-            new_dur = max(new_dur, 0.05)
-            if abs(new_dur - dur) / dur > 0.2:
-                dur_fixes += 1
-            dur = new_dur
+        if next_onset is not None:
+            gap = next_onset - t
+            # Extend to fill gap, but cap at 4 seconds
+            new_dur = min(gap, 4.0)
+            # Only extend, never shorten
+            if new_dur > dur:
+                fixes += 1
+                dur = new_dur
 
-        corrected.append((t, name, freq, vel, dur))
+        extended.append((t, name, freq, vel, dur))
 
-    return corrected, dur_fixes
+    return extended, fixes
 
 
 def postprocess_bp(notes, y=None, sr=None, verbose=True):
-    """Full post-processing pipeline for Basic Pitch output.
-
-    Args:
-        notes: list of (time, note_name, freq, velocity, duration)
-        y, sr: audio signal (optional, needed for duration improvement)
-        verbose: print progress
-
-    Returns:
-        corrected notes list
-    """
+    """Full post-processing pipeline for Basic Pitch output."""
     if verbose:
         print(f"\n=== BP Post-Processing ===")
         print(f"  Input: {len(notes)} notes")
 
-    # Step 1: Fix octave errors
+    # Step 1: Harmonic suppression
+    notes, harm_removed = suppress_harmonics(notes)
+    if verbose:
+        print(f"  Harmonics removed: {harm_removed}")
+
+    # Step 2: Octave correction
     notes, octave_fixes = fix_octave_errors(notes)
     if verbose:
         print(f"  Octave fixes: {octave_fixes}")
 
-    # Step 2: Filter false positives
-    notes, removed = filter_false_positives(notes)
+    # Step 3: Filter and merge
+    notes, filter_removed = filter_and_merge(notes)
     if verbose:
-        print(f"  Filtered: {removed} removed, {len(notes)} remaining")
+        print(f"  Filtered/merged: {filter_removed}")
 
-    # Step 3: CQT duration correction disabled — BP durations score
-    # better on GuitarSet (0.579 full F1 vs 0.289 with CQT correction).
-    # BP's neural network duration estimates are more accurate than
-    # our CQT energy threshold approach.
-    # TODO: revisit with a smarter duration model
+    # Step 4: Extend durations
+    notes, dur_extended = extend_durations(notes)
+    if verbose:
+        print(f"  Durations extended: {dur_extended}")
 
     if verbose:
         print(f"  Output: {len(notes)} notes")
