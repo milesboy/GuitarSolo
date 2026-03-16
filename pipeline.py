@@ -1,24 +1,24 @@
 """GuitarSolo Pipeline — top-level orchestrator.
 
-WAV → detect notes → optimize parameters → detect articulations
+WAV → Basic Pitch detection → refine → articulations
     → map to frets → export Guitar Pro + MIDI
 
 Usage:
     python pipeline.py                    # interactive song picker
     python pipeline.py song.wav          # direct file
     python pipeline.py --no-optimize     # skip optimization loop
+    python pipeline.py --legacy          # use old librosa CQT detector
 """
 import sys
 import os
 import time
 
-# Add project root to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import librosa
 import numpy as np
 
-from detection.librosa_detector import detect_tempo, detect_key, detect_chords, detect_notes
+from detection.librosa_detector import detect_tempo, detect_key, detect_chords
 from export.midi_writer import write_midi
 from export.fret_mapper import map_notes_sequence
 from export.guitarpro_writer import write_guitarpro
@@ -31,13 +31,14 @@ def format_time(seconds):
     return f"{m}:{s:02d}"
 
 
-def run_pipeline(filepath, optimize=True, verbose=True):
+def run_pipeline(filepath, optimize=True, verbose=True, use_basic_pitch=True):
     """Run the full analysis pipeline.
 
     Args:
         filepath: path to WAV/MP3 audio file
-        optimize: if True, run parameter grid search
+        optimize: if True, run parameter grid search (librosa only)
         verbose: print progress
+        use_basic_pitch: if True, use Basic Pitch (default); if False, use librosa CQT
 
     Returns:
         dict with all analysis results
@@ -45,22 +46,23 @@ def run_pipeline(filepath, optimize=True, verbose=True):
     t_start = time.time()
 
     if verbose:
+        engine = "Basic Pitch" if use_basic_pitch else "Librosa CQT"
         print(f"\n{'='*60}")
-        print(f"  GuitarSolo Pipeline")
+        print(f"  GuitarSolo Pipeline ({engine})")
         print(f"  File: {os.path.basename(filepath)}")
         print(f"{'='*60}")
 
-    # --- Load audio ---
+    # --- Load audio for analysis ---
     if verbose:
-        print("\n[1/7] Loading audio...", end=" ", flush=True)
+        print("\n[1/8] Loading audio...", end=" ", flush=True)
     y, sr = librosa.load(filepath, sr=None)
     duration = librosa.get_duration(y=y, sr=sr)
     if verbose:
         print(f"({format_time(duration)})")
 
-    # --- Basic analysis ---
+    # --- Basic analysis (tempo, key, chords — always librosa) ---
     if verbose:
-        print("[2/7] Analyzing tempo, key, chords...", end=" ", flush=True)
+        print("[2/8] Analyzing tempo, key, chords...", end=" ", flush=True)
     bpm = detect_tempo(y, sr)
     key = detect_key(y, sr)
     chords = detect_chords(y, sr)
@@ -68,29 +70,35 @@ def run_pipeline(filepath, optimize=True, verbose=True):
         print(f"{bpm} BPM, {key}, {len(chords)} chord changes")
 
     # --- Note detection ---
-    if optimize:
+    if use_basic_pitch:
         if verbose:
-            print("[3/8] Running parameter optimization...")
-
+            print("[3/8] Detecting notes (Basic Pitch)...", end=" ", flush=True)
+        from detection.basic_pitch_detector import detect_notes_bp
+        notes = detect_notes_bp(filepath)
+        best_params = {"engine": "basic-pitch"}
+        final_score = None
+        if verbose:
+            print(f"{len(notes)} notes")
+    elif optimize:
+        if verbose:
+            print("[3/8] Running parameter optimization (librosa)...")
+        from detection.librosa_detector import detect_notes
         from optimization.grid_search import grid_search, optimize_with_postprocess
 
         best_params, notes, best_score, _ = grid_search(
             y, sr, bpm, key, filepath, verbose=verbose
         )
-
-        # Post-processing pass
         notes, final_score = optimize_with_postprocess(
             y, sr, bpm, key, filepath, notes, verbose=verbose
         )
-
         if verbose:
-            print(f"\n  Optimized: {len(notes)} notes, "
-                  f"score={final_score:.3f}")
+            print(f"\n  Optimized: {len(notes)} notes, score={final_score:.3f}")
     else:
         if verbose:
-            print("[3/8] Detecting notes (single pass)...", end=" ", flush=True)
+            print("[3/8] Detecting notes (librosa CQT)...", end=" ", flush=True)
+        from detection.librosa_detector import detect_notes
         notes = detect_notes(y, sr, bpm)
-        best_params = {}
+        best_params = {"engine": "librosa-cqt"}
         final_score = None
         if verbose:
             print(f"{len(notes)} notes")
@@ -102,8 +110,7 @@ def run_pipeline(filepath, optimize=True, verbose=True):
     notes = refine_notes(y, sr, notes, bpm, verbose=verbose)
 
     # --- Filter notes above guitar range (E6 = MIDI 88) ---
-    # E6 is the highest natural harmonic (5th fret on high E string)
-    max_midi = 88  # E6
+    max_midi = 88
     before_count = len(notes)
     filtered = []
     for n in notes:
@@ -117,7 +124,7 @@ def run_pipeline(filepath, optimize=True, verbose=True):
     notes = filtered
     killed = before_count - len(notes)
     if verbose and killed > 0:
-        print(f"  Removed {killed} notes above D6")
+        print(f"  Removed {killed} notes above E6")
 
     # --- Articulation detection ---
     if verbose:
@@ -145,9 +152,8 @@ def run_pipeline(filepath, optimize=True, verbose=True):
         print("[7/8] Exporting Guitar Pro...", end=" ", flush=True)
     gp_path = os.path.splitext(filepath)[0] + ".gp5"
     title = os.path.splitext(os.path.basename(filepath))[0]
-    # GP5 title: strip non-ASCII, limit length, remove problematic chars
     title = title.encode("ascii", errors="ignore").decode("ascii")
-    title = title[:50]  # GP5 has title length limits
+    title = title[:50]
     write_guitarpro(
         fretted, articulations, bpm, key, chords,
         title=title, output_path=gp_path,
@@ -180,23 +186,6 @@ def run_pipeline(filepath, optimize=True, verbose=True):
         print(f"            {os.path.basename(midi_path)}")
         print(f"{'='*60}")
 
-        # Chord progression
-        print("\n  Chord Progression:")
-        for ts, chord in chords:
-            print(f"    {format_time(ts):>5s}  {chord}")
-
-        # Notes with articulations
-        print("\n  Notes:")
-        for i, n in enumerate(fretted):
-            t, note, freq, vel, dur = n[:5]
-            string, fret = n[5], n[6]
-            art = articulations[i] if i < len(articulations) else None
-            art_str = f" [{art.value}]" if art and art.value != "picked" else ""
-            bar = "#" * (vel // 10)
-            print(f"    {format_time(t):>5s}  {note:<5s} "
-                  f"s{6-string}f{fret:<2d} vel:{vel:>3d} "
-                  f"dur:{dur:.2f}s{art_str}  {bar}")
-
     return {
         "bpm": bpm,
         "key": key,
@@ -213,6 +202,7 @@ def run_pipeline(filepath, optimize=True, verbose=True):
 
 
 if __name__ == "__main__":
+    use_bp = "--legacy" not in sys.argv
     optimize = "--no-optimize" not in sys.argv
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
 
@@ -222,4 +212,4 @@ if __name__ == "__main__":
         from extract import pick_song
         filepath = pick_song()
 
-    run_pipeline(filepath, optimize=optimize)
+    run_pipeline(filepath, optimize=optimize, use_basic_pitch=use_bp)
