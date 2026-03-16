@@ -71,14 +71,22 @@ def run_pipeline(filepath, optimize=True, verbose=True, use_basic_pitch=True):
 
     # --- Note detection ---
     if use_basic_pitch:
-        if verbose:
-            print("[3/8] Detecting notes (Basic Pitch)...", end=" ", flush=True)
-        from detection.basic_pitch_detector import detect_notes_bp
-        notes = detect_notes_bp(filepath)
-        best_params = {"engine": "basic-pitch"}
+        use_ensemble = "--ensemble" in sys.argv
+        if use_ensemble:
+            if verbose:
+                print("[3/8] Detecting notes (BP Ensemble)...", flush=True)
+            from detection.ensemble_detector import detect_notes_ensemble
+            notes = detect_notes_ensemble(filepath, verbose=verbose)
+            best_params = {"engine": "basic-pitch-ensemble"}
+        else:
+            if verbose:
+                print("[3/8] Detecting notes (Basic Pitch)...", end=" ", flush=True)
+            from detection.basic_pitch_detector import detect_notes_bp
+            notes = detect_notes_bp(filepath)
+            best_params = {"engine": "basic-pitch"}
+            if verbose:
+                print(f"{len(notes)} notes")
         final_score = None
-        if verbose:
-            print(f"{len(notes)} notes")
     elif optimize:
         if verbose:
             print("[3/8] Running parameter optimization (librosa)...")

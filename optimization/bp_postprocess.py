@@ -16,15 +16,17 @@ GUITAR_MIDI_HIGH = 88  # E6
 HARM_INTERVALS = {12, 19, 24, 28, 31, 34, 36}
 
 
-def suppress_harmonics(notes, mag_ratio=2.0):
+def suppress_harmonics(notes, vel_threshold=0.6):
     """Remove notes that are harmonics of louder simultaneous notes.
 
     Groups notes by onset time (within 50ms). Within each group,
     identifies the bass note and removes higher notes that fall on
-    harmonic intervals IF they're quieter than the fundamental.
+    harmonic intervals IF they're significantly quieter than the
+    fundamental (below vel_threshold fraction).
 
-    This is the same logic as our CQT harmonic suppression but
-    applied to BP output.
+    BP velocities are in a narrow range, so only suppress truly
+    quiet harmonics — loud notes at harmonic positions are likely
+    independently played.
     """
     # Group by onset (within 50ms)
     groups = []
@@ -75,8 +77,9 @@ def suppress_harmonics(notes, mag_ratio=2.0):
                 note_j, midi_j = group_midi[j]
                 interval = midi_j - midi_i
                 if interval in HARM_INTERVALS:
-                    # It's a harmonic — suppress if quieter
-                    if note_j[3] < note_i[3] * mag_ratio:
+                    # It's a harmonic — only suppress if truly quiet
+                    # (below 50% of fundamental velocity)
+                    if note_j[3] < note_i[3] * vel_threshold:
                         suppressed.add(j)
 
         for i, (note, midi) in enumerate(group_midi):
