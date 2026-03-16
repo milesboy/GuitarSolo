@@ -121,24 +121,31 @@ def find_spectral_differences(original_wav, midi_path, verbose=True):
     # Compute difference: positive = extra in rendered, negative = missing
     diff = rend_db - orig_db
 
-    # Thresholds — higher values reduce false alarms from timbral
-    # differences between FluidSynth and real guitar
-    EXTRA_THRESHOLD = 40.0   # dB above original = definite extra note
-    MISSING_THRESHOLD = 40.0  # dB below rendered = definite missing note
+    # Frequency-weighted thresholds — bass has more ambient energy,
+    # treble extras are more audible and easier to confirm
+    BASS_BIN_MAX = 15  # bins 0-15 = E2 to G3 (bass range)
+    EXTRA_THRESH_BASS = 55.0    # higher bar for bass extras
+    EXTRA_THRESH_TREBLE = 35.0  # lower bar for treble extras
+    MISSING_THRESHOLD = 40.0
 
     fmin_std = librosa.note_to_hz("E2")
     bin_midi = [int(round(librosa.hz_to_midi(fmin_std) + i)) for i in range(n_semi)]
     bin_names = [librosa.midi_to_note(m) for m in bin_midi]
 
-    # Find extra notes (rendered has energy, original doesn't)
-    extra_mask = diff > EXTRA_THRESHOLD
+    # Find extra notes — only report if energy is strong in rendered
+    # AND weak in original (not just FluidSynth timbre harmonics)
     extra_notes = []
-    # Scan in time windows (~250ms — note-level, not frame-level)
     window = max(1, int(0.25 * sr / hop))
     for frame in range(0, min_frames, window):
         end = min(frame + window, min_frames)
         for b in range(n_semi):
-            if np.any(extra_mask[b, frame:end]):
+            thresh = EXTRA_THRESH_BASS if b <= BASS_BIN_MAX else EXTRA_THRESH_TREBLE
+            if np.any(diff[b, frame:end] > thresh):
+                # Extra check: original must be quiet at this bin
+                # (otherwise it's timbre difference, not a wrong note)
+                orig_energy = float(np.max(orig_db[b, frame:end]))
+                if orig_energy > -30:
+                    continue  # original has energy here too — just timbre
                 mag = float(np.max(diff[b, frame:end]))
                 t = librosa.frames_to_time(frame, sr=sr, hop_length=hop)
                 extra_notes.append({
@@ -148,13 +155,15 @@ def find_spectral_differences(original_wav, midi_path, verbose=True):
                     'excess_db': round(mag, 1),
                 })
 
-    # Find missing notes (original has energy, rendered doesn't)
-    missing_mask = diff < -MISSING_THRESHOLD
+    # Find missing notes with frequency-weighted thresholds
+    MISSING_THRESH_BASS = 55.0   # higher bar for bass missing
+    MISSING_THRESH_TREBLE = 35.0 # lower bar for treble missing
     missing_notes = []
     for frame in range(0, min_frames, window):
         end = min(frame + window, min_frames)
         for b in range(n_semi):
-            if np.any(missing_mask[b, frame:end]):
+            thresh = MISSING_THRESH_BASS if b <= BASS_BIN_MAX else MISSING_THRESH_TREBLE
+            if np.any(diff[b, frame:end] < -thresh):
                 mag = float(np.min(diff[b, frame:end]))
                 t = librosa.frames_to_time(frame, sr=sr, hop_length=hop)
                 missing_notes.append({

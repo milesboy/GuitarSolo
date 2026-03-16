@@ -21,34 +21,52 @@ from export.midi_writer import write_midi
 from config import FLUIDSYNTH_PATH, SOUNDFONT_PATH
 
 
-def remove_extra_notes(notes, extra_list, tolerance=0.3):
+def remove_extra_notes(notes, extra_list, time_tolerance=0.15,
+                       pitch_tolerance=1, min_excess_db=50.0):
     """Remove notes that the spectral diff identified as extras.
 
-    Matches by time (within tolerance) and pitch.
+    Only removes notes where:
+    - Time matches within tolerance
+    - Pitch matches within ±pitch_tolerance semitones
+    - The spectral excess is strong (above min_excess_db)
+
+    Prioritizes removing the strongest extras first.
     """
+    # Sort extras by strength — remove worst offenders first
+    strong_extras = [e for e in extra_list if e['excess_db'] >= min_excess_db]
+    strong_extras.sort(key=lambda e: -e['excess_db'])
+
     removed = 0
-    kept = []
+    remove_indices = set()
 
-    for n in notes:
-        t, name, freq, vel, dur = n
-        clean = name.replace("\u266f", "#").replace("\u266d", "b")
-        try:
-            midi = librosa.note_to_midi(clean)
-        except Exception:
-            kept.append(n)
-            continue
+    for extra in strong_extras:
+        best_idx = None
+        best_dist = float('inf')
 
-        is_extra = False
-        for extra in extra_list:
-            if abs(t - extra['time']) <= tolerance and midi == extra['midi']:
-                is_extra = True
-                break
+        for i, n in enumerate(notes):
+            if i in remove_indices:
+                continue
+            t = n[0]
+            clean = n[1].replace("\u266f", "#").replace("\u266d", "b")
+            try:
+                midi = librosa.note_to_midi(clean)
+            except Exception:
+                continue
 
-        if is_extra:
+            time_dist = abs(t - extra['time'])
+            pitch_dist = abs(midi - extra['midi'])
+
+            if time_dist <= time_tolerance and pitch_dist <= pitch_tolerance:
+                # Prefer closest time match
+                if time_dist < best_dist:
+                    best_dist = time_dist
+                    best_idx = i
+
+        if best_idx is not None:
+            remove_indices.add(best_idx)
             removed += 1
-        else:
-            kept.append(n)
 
+    kept = [n for i, n in enumerate(notes) if i not in remove_indices]
     return kept, removed
 
 
@@ -93,8 +111,10 @@ def add_missing_notes(notes, missing_list, y, sr, tolerance=0.3,
         t = missing['time']
         midi = missing['midi']
 
-        # Hard floor: nothing below guitar range
-        if midi < GUITAR_MIDI_LOW or midi > GUITAR_MIDI_HIGH:
+        # Range filter: guitar only, cap at E5 for added notes
+        # (notes above E5 in spectral diff are usually FluidSynth artifacts)
+        ADDED_MIDI_HIGH = 76  # E5
+        if midi < GUITAR_MIDI_LOW or midi > ADDED_MIDI_HIGH:
             continue
 
         # Bass notes need a higher deficit threshold — low frequencies
@@ -148,8 +168,22 @@ def add_missing_notes(notes, missing_list, y, sr, tolerance=0.3,
         added.append((t, name, freq, vel, dur))
         existing.add(key)
 
-    all_notes = sorted(notes + added, key=lambda n: n[0])
-    return all_notes, len(added)
+    # Deduplicate: don't add the same pitch within 0.5s of an existing note
+    deduped = []
+    for a in added:
+        t_a = a[0]
+        clean_a = a[1].replace("\u266f", "#").replace("\u266d", "b")
+        too_close = False
+        for n in notes + deduped:
+            clean_n = n[1].replace("\u266f", "#").replace("\u266d", "b")
+            if clean_a == clean_n and abs(t_a - n[0]) < 0.5:
+                too_close = True
+                break
+        if not too_close:
+            deduped.append(a)
+
+    all_notes = sorted(notes + deduped, key=lambda n: n[0])
+    return all_notes, len(deduped)
 
 
 def run_feedback_loop(original_wav, notes, bpm, chords=None,
