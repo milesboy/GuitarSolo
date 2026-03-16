@@ -208,23 +208,27 @@ def write_guitarpro(fretted_notes, articulations, bpm, key="C major",
 
             remaining = SLOTS_PER_MEASURE - cursor
 
-            # Cap at next note in this measure that shares a range.
-            # For groups with both bass+melody, find the LATEST
-            # first-onset across ranges so notes ring as long as
-            # the longest-sustaining range.
+            # Cap at next note in this measure.
+            # Single-range groups (bass only or melody only) ring past
+            # onsets of the OTHER range. Mixed groups (bass+melody) cap
+            # at the next onset of ANY kind — otherwise they swallow
+            # the onset that should be a separate beat.
             avail = ring_slots
             if j + 1 < len(onsets):
-                latest_cap = 0
-                for rng in my_ranges:
-                    cap_for_range = SLOTS_PER_MEASURE
+                if len(my_ranges) == 1:
+                    # Pure bass or pure melody — only cap at same range
+                    my_rng = next(iter(my_ranges))
                     for k in range(j + 1, len(onsets)):
-                        if rng in onset_ranges.get(onsets[k], set()):
+                        if my_rng in onset_ranges.get(onsets[k], set()):
                             ns = round((onsets[k] - m_start) / sec_per_16th)
-                            cap_for_range = max(0, min(ns, SLOTS_PER_MEASURE))
+                            ns = max(0, min(ns, SLOTS_PER_MEASURE))
+                            avail = min(avail, ns - cursor)
                             break
-                    latest_cap = max(latest_cap, cap_for_range)
-                if latest_cap > cursor:
-                    avail = min(avail, latest_cap - cursor)
+                else:
+                    # Mixed group — cap at next onset regardless of range
+                    ns = round((onsets[j + 1] - m_start) / sec_per_16th)
+                    ns = max(0, min(ns, SLOTS_PER_MEASURE))
+                    avail = min(avail, ns - cursor)
             avail = max(avail, 1)
 
             note_dur = _snap_down(min(avail, remaining))
