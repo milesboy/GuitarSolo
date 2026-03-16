@@ -258,8 +258,7 @@ def suppress_under_sustain(notes):
 
     When a high note is ringing, lower notes that emerge underneath
     are typically harmonics or sympathetic resonance, not new plucks.
-    The sustained high note dominates perceptually — the lower notes
-    wouldn't be heard as separate events.
+    The sustained high note dominates perceptually.
 
     Only suppresses if the new note is:
     - Lower in pitch than a currently ringing note
@@ -292,7 +291,6 @@ def suppress_under_sustain(notes):
         suppressed = False
         for ring_end, ring_midi, ring_vel in ringing:
             if midi < ring_midi and vel < ring_vel * 0.8:
-                # Lower and quieter than a sustaining note — suppress
                 suppressed = True
                 removed += 1
                 break
