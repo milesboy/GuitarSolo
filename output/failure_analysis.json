@@ -1,0 +1,118 @@
+[
+  {
+    "tid": "00_BN1-129-Eb_solo",
+    "style": "Bossa Nova",
+    "mode": "solo",
+    "tempo": 129.0,
+    "gt_notes": 71,
+    "pred_notes": 85,
+    "errors": {
+      "semitone_error": 1,
+      "duration_error": 15,
+      "extra_note": 22,
+      "fifth_error": 2,
+      "large_pitch_error": 5,
+      "octave_error": 4,
+      "missed_note": 8,
+      "total_gt": 71,
+      "total_pred": 85
+    },
+    "gt_dur_avg": "0.444",
+    "gt_dur_med": "0.290",
+    "pred_dur_avg": "0.521",
+    "pred_dur_med": "0.337",
+    "comparison": "Time     | GT Note | GT MIDI | Pred Note | Pred MIDI | Match?\n----------------------------------------------------------------------\n  0.009s |     G\u266f3 |      56 |       D\u266f3 |        51 | WRONG (-5)\n  0.010s |     G\u266f3 |      56 |       D\u266f3 |        51 | WRONG (-5)\n  0.012s |     G\u266f3 |      56 |       D\u266f3 |        51 | WRONG (-5)\n  0.015s |     G\u266f3 |      56 |       D\u266f3 |        51 | WRONG (-5)\n  0.187s |      F3 |      53 |        F3 |        53 | OK\n  0.188s |      F3 |      53 |        F3 |        53 | OK\n  0.221s |      F3 |      53 |        F3 |        53 | OK\n  0.488s |      E3 |      52 |        E3 |        52 | OK\n  0.497s |      E3 |      52 |        E3 |        52 | OK\n  0.499s |      E3 |      52 |        E3 |        52 | OK\n  0.928s |      E3 |      52 |       --- |       --- | MISSED\n  1.010s |      F3 |      53 |        F3 |        53 | OK\n  1.027s |      F3 |      53 |        F3 |        53 | OK\n  1.428s |      A3 |      57 |        A3 |        57 | OK\n  1.438s |      A3 |      57 |        A3 |        57 | OK\n  1.439s |      A3 |      57 |        A3 |        57 | OK\n  1.672s |     A\u266f3 |      58 |       A\u266f3 |        58 | OK\n  1.682s |     A\u266f3 |      58 |       A\u266f3 |        58 | OK\n  1.904s |      A3 |      57 |        A3 |        57 | OK\n  1.907s |      A3 |      57 |        A3 |        57 | OK\n  2.300s |      F3 |      53 |        F3 |        53 | OK\n  2.314s |      F3 |      53 |        F3 |        53 | OK\n  2.776s |      A3 |      57 |        A3 |        57 | OK\n  2.790s |      A3 |      57 |        A3 |        57 | OK\n  3.229s |      D4 |      62 |        D4 |        62 | OK\n  3.240s |      D4 |      62 |        D4 |        62 | OK\n  3.240s |      D4 |      62 |        D4 |        62 | OK\n  3.705s |      D4 |      62 |        D4 |        62 | OK\n  3.716s |      D4 |      62 |        D4 |        62 | OK\n  3.716s |      D4 |      62 |        D4 |        62 | OK"
+  },
+  {
+    "tid": "00_Rock1-130-A_solo",
+    "style": "Rock",
+    "mode": "solo",
+    "tempo": 130.0,
+    "gt_notes": 88,
+    "pred_notes": 100,
+    "errors": {
+      "extra_note": 24,
+      "fifth_error": 1,
+      "semitone_error": 3,
+      "large_pitch_error": 9,
+      "duration_error": 10,
+      "missed_note": 12,
+      "total_gt": 88,
+      "total_pred": 100
+    },
+    "gt_dur_avg": "0.274",
+    "gt_dur_med": "0.226",
+    "pred_dur_avg": "0.402",
+    "pred_dur_med": "0.279",
+    "comparison": "Time     | GT Note | GT MIDI | Pred Note | Pred MIDI | Match?\n----------------------------------------------------------------------\n  0.012s |      E3 |      52 |        E3 |        52 | OK\n  0.014s |      E3 |      52 |        E3 |        52 | OK\n  0.448s |      E3 |      52 |        E3 |        52 | OK\n  0.476s |      E3 |      52 |        E3 |        52 | OK\n  0.766s |      D3 |      50 |        D3 |        50 | OK\n  0.781s |      D3 |      50 |        D3 |        50 | OK\n  0.906s |      D3 |      50 |        D3 |        50 | OK\n  0.911s |      D3 |      50 |        D3 |        50 | OK\n  1.161s |      D3 |      50 |        D3 |        50 | OK\n  1.180s |      D3 |      50 |        D3 |        50 | OK\n  1.614s |     C\u266f3 |      49 |       C\u266f3 |        49 | OK\n  1.627s |     C\u266f3 |      49 |       C\u266f3 |        49 | OK\n  1.822s |     C\u266f3 |      49 |       --- |       --- | MISSED\n  1.881s |     --- |     --- |       C\u266f3 |        49 | EXTRA\n  2.096s |      D3 |      50 |       --- |       --- | MISSED\n  2.161s |     --- |     --- |        D3 |        50 | EXTRA\n  2.312s |     C\u266f3 |      49 |       C\u266f3 |        49 | OK\n  2.327s |     C\u266f3 |      49 |       C\u266f3 |        49 | OK\n  2.544s |      B2 |      47 |        B2 |        47 | OK\n  2.564s |      B2 |      47 |        B2 |        47 | OK\n  2.846s |     --- |     --- |        A2 |        45 | EXTRA\n  2.906s |      A2 |      45 |       --- |       --- | MISSED\n  3.008s |      A2 |      45 |        A2 |        45 | OK\n  3.010s |      A2 |      45 |        A2 |        45 | OK\n  3.473s |      E3 |      52 |        E3 |        52 | OK\n  3.480s |      E3 |      52 |        E3 |        52 | OK\n  3.701s |      E3 |      52 |        E3 |        52 | OK\n  3.728s |      E3 |      52 |        E3 |        52 | OK\n  4.165s |      E3 |      52 |        A2 |        45 | WRONG (-7)\n  4.182s |      E3 |      52 |        A2 |        45 | WRONG (-7)"
+  },
+  {
+    "tid": "00_Jazz1-130-D_comp",
+    "style": "Jazz",
+    "mode": "comp",
+    "tempo": 130.0,
+    "gt_notes": 206,
+    "pred_notes": 158,
+    "errors": {
+      "duration_error": 32,
+      "semitone_error": 3,
+      "extra_note": 19,
+      "fifth_error": 3,
+      "large_pitch_error": 14,
+      "octave_error": 3,
+      "missed_note": 67,
+      "total_gt": 206,
+      "total_pred": 158
+    },
+    "gt_dur_avg": "0.411",
+    "gt_dur_med": "0.345",
+    "pred_dur_avg": "0.484",
+    "pred_dur_med": "0.454",
+    "comparison": "Time     | GT Note | GT MIDI | Pred Note | Pred MIDI | Match?\n----------------------------------------------------------------------\n  0.008s |      A3 |      57 |        A3 |        57 | OK\n  0.010s |      A3 |      57 |        A3 |        57 | OK\n  0.012s |      A3 |      57 |        A3 |        57 | OK\n  0.476s |      A3 |      57 |        A3 |        57 | OK\n  0.479s |      A3 |      57 |        A3 |        57 | OK\n  0.481s |      A3 |      57 |        A3 |        57 | OK\n  0.485s |      A3 |      57 |        A3 |        57 | OK\n  0.488s |      A3 |      57 |        A3 |        57 | OK\n  0.491s |      A3 |      57 |        A3 |        57 | OK\n  1.231s |      A4 |      69 |        A3 |        57 | OCTAVE\n  1.237s |      A4 |      69 |        A3 |        57 | OCTAVE\n  1.246s |      A4 |      69 |        A3 |        57 | OCTAVE\n  1.256s |      A4 |      69 |        A3 |        57 | OCTAVE\n  1.264s |      A4 |      69 |        A3 |        57 | OCTAVE\n  1.266s |      A4 |      69 |        A3 |        57 | OCTAVE\n  1.668s |     A\u266f4 |      70 |        A3 |        57 | WRONG (-13)\n  1.672s |     A\u266f4 |      70 |        A3 |        57 | WRONG (-13)\n  1.677s |     A\u266f4 |      70 |        A3 |        57 | WRONG (-13)\n  1.687s |     A\u266f4 |      70 |        A3 |        57 | WRONG (-13)\n  1.694s |     A\u266f4 |      70 |        A3 |        57 | WRONG (-13)\n  1.699s |     A\u266f4 |      70 |        A3 |        57 | WRONG (-13)\n  1.818s |      E3 |      52 |       --- |       --- | MISSED\n  1.826s |      E3 |      52 |        D4 |        62 | WRONG (+10)\n  1.869s |      D4 |      62 |        D4 |        62 | OK\n  2.138s |      B4 |      71 |        B4 |        71 | OK\n  2.149s |      B4 |      71 |        B4 |        71 | OK\n  2.154s |      B4 |      71 |        B4 |        71 | OK\n  2.161s |      B4 |      71 |        B4 |        71 | OK\n  2.163s |      B4 |      71 |        B4 |        71 | OK\n  2.176s |      B4 |      71 |        B4 |        71 | OK"
+  },
+  {
+    "tid": "00_Funk1-114-Ab_comp",
+    "style": "Funk",
+    "mode": "comp",
+    "tempo": 114.0,
+    "gt_notes": 307,
+    "pred_notes": 193,
+    "errors": {
+      "duration_error": 56,
+      "octave_error": 10,
+      "large_pitch_error": 11,
+      "extra_note": 16,
+      "fifth_error": 3,
+      "semitone_error": 1,
+      "missed_note": 130,
+      "total_gt": 307,
+      "total_pred": 193
+    },
+    "gt_dur_avg": "0.217",
+    "gt_dur_med": "0.192",
+    "pred_dur_avg": "0.365",
+    "pred_dur_med": "0.302",
+    "comparison": "Time     | GT Note | GT MIDI | Pred Note | Pred MIDI | Match?\n----------------------------------------------------------------------\n  0.067s |     G\u266f3 |      56 |       G\u266f3 |        56 | OK\n  0.070s |     G\u266f3 |      56 |       G\u266f3 |        56 | OK\n  0.302s |      C4 |      60 |        C4 |        60 | OK\n  0.304s |      C4 |      60 |        C4 |        60 | OK\n  0.307s |      C4 |      60 |        C4 |        60 | OK\n  0.313s |      C4 |      60 |        C4 |        60 | OK\n  0.318s |      C4 |      60 |        C4 |        60 | OK\n  0.697s |     G\u266f4 |      68 |       G\u266f4 |        68 | OK\n  0.716s |     G\u266f4 |      68 |       G\u266f4 |        68 | OK\n  0.720s |     G\u266f4 |      68 |       G\u266f4 |        68 | OK\n  0.722s |     G\u266f4 |      68 |       G\u266f4 |        68 | OK\n  0.730s |     G\u266f4 |      68 |       G\u266f4 |        68 | OK\n  1.103s |      C4 |      60 |        C4 |        60 | OK\n  1.113s |      C4 |      60 |        C4 |        60 | OK\n  1.120s |      C4 |      60 |        C4 |        60 | OK\n  1.124s |      C4 |      60 |        C4 |        60 | OK\n  1.498s |     G\u266f4 |      68 |        C4 |        60 | WRONG (-8)\n  1.502s |     G\u266f4 |      68 |        C4 |        60 | WRONG (-8)\n  1.508s |     G\u266f4 |      68 |        C4 |        60 | WRONG (-8)\n  1.521s |     G\u266f4 |      68 |        C4 |        60 | WRONG (-8)\n  1.857s |      C4 |      60 |        C4 |        60 | OK\n  1.858s |      C4 |      60 |        C4 |        60 | OK\n  1.863s |      C4 |      60 |        C4 |        60 | OK\n  1.868s |      C4 |      60 |        C4 |        60 | OK\n  1.974s |     F\u266f4 |      66 |       F\u266f4 |        66 | OK\n  1.986s |     F\u266f4 |      66 |       F\u266f4 |        66 | OK\n  2.300s |     C\u266f3 |      49 |       G\u266f3 |        56 | WRONG (+7)\n  2.345s |     C\u266f3 |      49 |       G\u266f3 |        56 | WRONG (+7)\n  2.346s |     C\u266f3 |      49 |       G\u266f3 |        56 | WRONG (+7)\n  2.348s |     C\u266f3 |      49 |       G\u266f3 |        56 | WRONG (+7)"
+  },
+  {
+    "tid": "00_SS1-100-C#_solo",
+    "style": "Singer-Songwriter",
+    "mode": "solo",
+    "tempo": 100.0,
+    "gt_notes": 64,
+    "pred_notes": 79,
+    "errors": {
+      "extra_note": 19,
+      "duration_error": 10,
+      "large_pitch_error": 3,
+      "missed_note": 4,
+      "total_gt": 64,
+      "total_pred": 79
+    },
+    "gt_dur_avg": "0.496",
+    "gt_dur_med": "0.296",
+    "pred_dur_avg": "0.615",
+    "pred_dur_med": "0.337",
+    "comparison": "Time     | GT Note | GT MIDI | Pred Note | Pred MIDI | Match?\n----------------------------------------------------------------------\n  0.023s |      F3 |      53 |        F3 |        53 | OK\n  0.025s |      F3 |      53 |        F3 |        53 | OK\n  0.093s |     --- |     --- |       C\u266f3 |        49 | EXTRA\n  0.708s |     --- |     --- |       C\u266f3 |        49 | EXTRA\n  1.498s |     A\u266f2 |      46 |       A\u266f2 |        46 | OK\n  1.509s |     A\u266f2 |      46 |       A\u266f2 |        46 | OK\n  1.834s |     A\u266f2 |      46 |       A\u266f2 |        46 | OK\n  1.846s |     A\u266f2 |      46 |       A\u266f2 |        46 | OK\n  2.114s |     G\u266f2 |      44 |       G\u266f2 |        44 | OK\n  2.125s |     G\u266f2 |      44 |       G\u266f2 |        44 | OK\n  2.451s |     G\u266f2 |      44 |       G\u266f2 |        44 | OK\n  2.454s |     G\u266f2 |      44 |       G\u266f2 |        44 | OK\n  3.949s |     --- |     --- |       C\u266f3 |        49 | EXTRA\n  4.229s |     C\u266f3 |      49 |       C\u266f3 |        49 | OK\n  4.234s |     C\u266f3 |      49 |       C\u266f3 |        49 | OK\n  4.565s |     D\u266f3 |      51 |       D\u266f3 |        51 | OK\n  4.579s |     D\u266f3 |      51 |       D\u266f3 |        51 | OK\n  4.844s |      F3 |      53 |        F3 |        53 | OK\n  4.860s |      F3 |      53 |        F3 |        53 | OK\n  5.715s |     A\u266f2 |      46 |       A\u266f2 |        46 | OK\n  5.727s |     A\u266f2 |      46 |       A\u266f2 |        46 | OK\n  6.006s |     A\u266f2 |      46 |       A\u266f2 |        46 | OK\n  6.019s |     A\u266f2 |      46 |       A\u266f2 |        46 | OK\n  6.285s |     G\u266f2 |      44 |       G\u266f2 |        44 | OK\n  6.301s |     G\u266f2 |      44 |       G\u266f2 |        44 | OK\n  6.619s |     G\u266f2 |      44 |       G\u266f2 |        44 | OK\n  6.622s |     G\u266f2 |      44 |       G\u266f2 |        44 | OK\n  6.889s |     C\u266f3 |      49 |       C\u266f3 |        49 | OK\n  6.898s |     C\u266f3 |      49 |       C\u266f3 |        49 | OK\n  7.202s |     C\u266f3 |      49 |       C\u266f3 |        49 | OK"
+  }
+]

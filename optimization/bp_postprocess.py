@@ -115,7 +115,7 @@ def fix_octave_errors(notes):
     return corrected, fixes
 
 
-def filter_and_merge(notes, min_velocity_pct=0.20, merge_window=0.03):
+def filter_and_merge(notes, min_velocity_pct=0.25, merge_window=0.03):
     """Remove low-velocity notes and merge near-duplicates.
 
     Args:
@@ -162,16 +162,14 @@ def filter_and_merge(notes, min_velocity_pct=0.20, merge_window=0.03):
     return merged, removed
 
 
-def extend_durations(notes):
-    """Extend note durations to ring until the next onset in the same range.
+def cap_durations(notes):
+    """Cap note durations at the next onset to prevent overlap.
 
-    Guitar strings ring naturally until the next pluck on the same string.
-    BP durations are often too short. Extend each note to fill the gap
-    to the next onset, respecting bass/melody independence.
-
-    Uses the same bass/melody range split as the GP writer.
+    BP durations are often 50-70% too long (GT avg ~0.3s, BP avg ~0.5s).
+    Cap each note so it doesn't ring past the next note in the same range.
+    This prevents the muddy overlapping sound in GP playback.
     """
-    BASS_MAX_MIDI = 55  # G3
+    BASS_MAX_MIDI = 55
 
     def note_range(name):
         clean = name.replace("\u266f", "#").replace("\u266d", "b")
@@ -185,7 +183,7 @@ def extend_durations(notes):
         return notes, 0
 
     sorted_notes = sorted(notes, key=lambda n: n[0])
-    extended = []
+    capped = []
     fixes = 0
 
     for i, (t, name, freq, vel, dur) in enumerate(sorted_notes):
@@ -194,24 +192,20 @@ def extend_durations(notes):
         # Find next onset in same range
         next_onset = None
         for j in range(i + 1, len(sorted_notes)):
-            future_rng = note_range(sorted_notes[j][1])
-            if future_rng == rng or (rng == "bass" and future_rng == "bass") or \
-               (rng == "melody" and future_rng == "melody"):
+            if note_range(sorted_notes[j][1]) == rng:
                 next_onset = sorted_notes[j][0]
                 break
 
         if next_onset is not None:
             gap = next_onset - t
-            # Extend to fill gap, but cap at 4 seconds
-            new_dur = min(gap, 4.0)
-            # Only extend, never shorten
-            if new_dur > dur:
+            # Cap duration at the gap (don't overlap)
+            if dur > gap:
                 fixes += 1
-                dur = new_dur
+                dur = max(gap, 0.05)  # minimum 50ms
 
-        extended.append((t, name, freq, vel, dur))
+        capped.append((t, name, freq, vel, dur))
 
-    return extended, fixes
+    return capped, fixes
 
 
 def postprocess_bp(notes, y=None, sr=None, verbose=True):
@@ -235,10 +229,10 @@ def postprocess_bp(notes, y=None, sr=None, verbose=True):
     if verbose:
         print(f"  Filtered/merged: {filter_removed}")
 
-    # Step 4: Extend durations
-    notes, dur_extended = extend_durations(notes)
-    if verbose:
-        print(f"  Durations extended: {dur_extended}")
+    # Step 4: Duration adjustment disabled — BP raw durations give the best
+    # full F1 (0.579). Capping helped slightly (0.555) but not enough.
+    # Extending made things worse (0.539). Trust BP for now.
+    # The GP writer's range-aware sustain handles the rest.
 
     if verbose:
         print(f"  Output: {len(notes)} notes")
