@@ -74,14 +74,15 @@ def add_missing_notes(notes, missing_list, y, sr, tolerance=0.3,
                       min_deficit_db=45.0):
     """Add notes that the spectral diff identified as missing.
 
-    Only adds notes with strong deficit (clearly audible in original
-    but absent in our MIDI). Uses CQT to verify the note is real
-    and estimate duration.
+    Three-gate validation before adding any note:
+    1. Onset gate: must have a detected onset nearby (real pluck, not sustain)
+    2. Not-during-sustain gate: don't add notes while existing notes ring
+    3. CQT energy gate: must have real spectral energy at this pitch/time
     """
     added = []
     hop = 512
 
-    # Build CQT for duration estimation
+    # Build CQT
     y_harm, _ = librosa.effects.hpss(y)
     tuning = librosa.estimate_tuning(y=y_harm, sr=sr)
     fmin = librosa.note_to_hz("E2") * (2 ** (tuning / 12))
@@ -93,7 +94,34 @@ def add_missing_notes(notes, missing_list, y, sr, tolerance=0.3,
     for i in range(n_semi):
         cqt[i] = np.max(cqt_raw[i*3:(i+1)*3], axis=0)
 
-    # Filter: only add strong missing notes not already in our list
+    # Gate 1: Detect onsets in original audio
+    onset_frames = librosa.onset.onset_detect(
+        y=y_harm, sr=sr, hop_length=hop, backtrack=True)
+    onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=hop)
+    onset_set = set(round(t, 2) for t in onset_times)
+
+    def has_onset_nearby(t, tolerance_ms=80):
+        """Check if there's a detected onset within tolerance."""
+        for ot in onset_times:
+            if abs(ot - t) <= tolerance_ms / 1000.0:
+                return True
+        return False
+
+    # Gate 2: Build sustain map — times where existing notes are ringing
+    def is_during_sustain(t, midi_note):
+        """Check if this pitch is already ringing from an existing note."""
+        for n in notes:
+            clean = n[1].replace("\u266f", "#").replace("\u266d", "b")
+            try:
+                n_midi = librosa.note_to_midi(clean)
+            except Exception:
+                continue
+            # Same pitch, currently ringing
+            if abs(n_midi - midi_note) <= 1 and n[0] < t < n[0] + n[4]:
+                return True
+        return False
+
+    # Existing notes set
     existing = set()
     for n in notes:
         clean = n[1].replace("\u266f", "#").replace("\u266d", "b")
@@ -103,25 +131,21 @@ def add_missing_notes(notes, missing_list, y, sr, tolerance=0.3,
         except Exception:
             pass
 
-    GUITAR_MIDI_LOW = 40   # E2 — lowest guitar note
-    GUITAR_MIDI_HIGH = 88  # E6 — highest harmonic
-    BASS_MIDI_MAX = 55     # G3 — bass range ceiling
+    GUITAR_MIDI_LOW = 40
+    ADDED_MIDI_HIGH = 76  # E5
+    BASS_MIDI_MAX = 55
 
     for missing in missing_list:
         t = missing['time']
         midi = missing['midi']
 
-        # Range filter: guitar only, cap at E5 for added notes
-        # (notes above E5 in spectral diff are usually FluidSynth artifacts)
-        ADDED_MIDI_HIGH = 76  # E5
+        # Range filter
         if midi < GUITAR_MIDI_LOW or midi > ADDED_MIDI_HIGH:
             continue
 
-        # Bass notes need a higher deficit threshold — low frequencies
-        # have more CQT energy from room tone and string resonance,
-        # causing false "missing" detections
+        # Bass threshold
         if midi <= BASS_MIDI_MAX:
-            required_db = min_deficit_db + 15.0  # 60dB for bass
+            required_db = min_deficit_db + 15.0
         else:
             required_db = min_deficit_db
 
@@ -132,7 +156,15 @@ def add_missing_notes(notes, missing_list, y, sr, tolerance=0.3,
         if key in existing:
             continue
 
-        # Verify with CQT: is there real energy at this pitch/time?
+        # Gate 1: Must have a detected onset nearby
+        if not has_onset_nearby(t):
+            continue
+
+        # Gate 2: Don't add during sustain of same pitch
+        if is_during_sustain(t, midi):
+            continue
+
+        # Gate 3: Verify with CQT energy
         note_bin = midi - 40
         if note_bin < 0 or note_bin >= n_semi:
             continue
