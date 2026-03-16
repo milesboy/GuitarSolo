@@ -253,8 +253,15 @@ def remove_sustain_duplicates(notes):
     return kept, removed
 
 
-def postprocess_bp(notes, y=None, sr=None, verbose=True):
-    """Full post-processing pipeline for Basic Pitch output."""
+def postprocess_bp(notes, y=None, sr=None, verbose=True, verify_pitch=True):
+    """Full post-processing pipeline for Basic Pitch output.
+
+    Args:
+        notes: list of (time, note_name, freq, velocity, duration)
+        y, sr: audio signal (needed for pitch voting)
+        verify_pitch: if True and audio provided, run CQT pitch voting
+        verbose: print progress
+    """
     if verbose:
         print(f"\n=== BP Post-Processing ===")
         print(f"  Input: {len(notes)} notes")
@@ -279,10 +286,11 @@ def postprocess_bp(notes, y=None, sr=None, verbose=True):
     if verbose:
         print(f"  Filtered/merged: {filter_removed}")
 
-    # Step 4: Duration adjustment disabled — BP raw durations give the best
-    # full F1 (0.579). Capping helped slightly (0.555) but not enough.
-    # Extending made things worse (0.539). Trust BP for now.
-    # The GP writer's range-aware sustain handles the rest.
+    # Step 5: CQT pitch voting — verify each note's pitch with
+    # multiple CQT snapshots during its active period
+    if verify_pitch and y is not None and sr is not None:
+        from detection.pitch_voter import verify_notes
+        notes, pitch_fixes = verify_notes(notes, y, sr, verbose=verbose)
 
     if verbose:
         print(f"  Output: {len(notes)} notes")

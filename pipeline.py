@@ -116,7 +116,7 @@ def run_pipeline(filepath, optimize=True, verbose=True, use_basic_pitch=True):
         if verbose:
             print("[4/8] Post-processing BP output...", flush=True)
         from optimization.bp_postprocess import postprocess_bp
-        notes = postprocess_bp(notes, verbose=verbose)
+        notes = postprocess_bp(notes, y=y, sr=sr, verbose=verbose)
     else:
         if verbose:
             print("[4/8] Refining notes (CQT)...", flush=True)
