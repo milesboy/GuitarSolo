@@ -253,6 +253,57 @@ def remove_sustain_duplicates(notes):
     return kept, removed
 
 
+def suppress_under_sustain(notes):
+    """Remove lower notes that appear under a sustained higher note.
+
+    When a high note is ringing, lower notes that emerge underneath
+    are typically harmonics or sympathetic resonance, not new plucks.
+    The sustained high note dominates perceptually — the lower notes
+    wouldn't be heard as separate events.
+
+    Only suppresses if the new note is:
+    - Lower in pitch than a currently ringing note
+    - Quieter than the ringing note
+    - Not a strong independent pluck (velocity check)
+    """
+    if not notes:
+        return notes, 0
+
+    sorted_notes = sorted(notes, key=lambda n: n[0])
+    kept = []
+    removed = 0
+
+    # Track ringing notes: list of (end_time, midi, velocity)
+    ringing = []
+
+    for t, name, freq, vel, dur in sorted_notes:
+        clean = name.replace("\u266f", "#").replace("\u266d", "b")
+        try:
+            midi = librosa.note_to_midi(clean)
+        except Exception:
+            kept.append((t, name, freq, vel, dur))
+            continue
+
+        # Expire old ringing notes
+        ringing = [(end, m, v) for end, m, v in ringing if end > t]
+
+        # Check: is this note lower than any currently ringing note
+        # AND quieter? If so, it's likely a harmonic/artifact.
+        suppressed = False
+        for ring_end, ring_midi, ring_vel in ringing:
+            if midi < ring_midi and vel < ring_vel * 0.8:
+                # Lower and quieter than a sustaining note — suppress
+                suppressed = True
+                removed += 1
+                break
+
+        if not suppressed:
+            kept.append((t, name, freq, vel, dur))
+            ringing.append((t + dur, midi, vel))
+
+    return kept, removed
+
+
 def postprocess_bp(notes, y=None, sr=None, verbose=True, verify_pitch=True):
     """Full post-processing pipeline for Basic Pitch output.
 
@@ -286,12 +337,10 @@ def postprocess_bp(notes, y=None, sr=None, verbose=True, verify_pitch=True):
     if verbose:
         print(f"  Filtered/merged: {filter_removed}")
 
-    # Step 5: CQT pitch voting disabled — CQT peaks are unreliable for
-    # pitch verification (harmonics and spectral leakage cause wrong
-    # corrections). BP pitch accuracy drops 0.737 → 0.535 with voting.
-    # BP's neural network is better at pitch than CQT peak picking.
-    # TODO: revisit with a smarter voting approach (dB-normalized,
-    # harmonic-aware peak selection)
+    # Step 5: Suppress lower notes under sustained high notes
+    notes, under_sustain = suppress_under_sustain(notes)
+    if verbose:
+        print(f"  Under-sustain suppressed: {under_sustain}")
 
     if verbose:
         print(f"  Output: {len(notes)} notes")
