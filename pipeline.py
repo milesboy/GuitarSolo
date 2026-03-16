@@ -103,15 +103,17 @@ def run_pipeline(filepath, optimize=True, verbose=True, use_basic_pitch=True):
         if verbose:
             print(f"{len(notes)} notes")
 
-    # --- Note refinement (skip for Basic Pitch — BP durations are better) ---
-    if not use_basic_pitch:
+    # --- Note refinement ---
+    if use_basic_pitch:
         if verbose:
-            print("[4/8] Refining notes...", flush=True)
-        from optimization.note_refiner import refine_notes
-        notes = refine_notes(y, sr, notes, bpm, verbose=verbose)
+            print("[4/8] Post-processing BP output...", flush=True)
+        from optimization.bp_postprocess import postprocess_bp
+        notes = postprocess_bp(notes, verbose=verbose)
     else:
         if verbose:
-            print("[4/8] Skipping CQT refinement (using BP durations)")
+            print("[4/8] Refining notes (CQT)...", flush=True)
+        from optimization.note_refiner import refine_notes
+        notes = refine_notes(y, sr, notes, bpm, verbose=verbose)
 
     # --- Filter notes above guitar range (E6 = MIDI 88) ---
     max_midi = 88
